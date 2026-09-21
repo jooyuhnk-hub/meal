@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>우리집 식단표</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#cf5330">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="식단표">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
 <style>
   :root{
@@ -960,6 +968,13 @@
   }
 
   boot();
+
+  // Lets Chrome/Android offer "홈 화면에 추가 → 앱 설치" as a real standalone
+  // app icon instead of a plain bookmark. Does no caching of its own (see
+  // sw.js) — installing it doesn't change how data loads or syncs.
+  if ("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js").catch(function(){});
+  }
 })();
 </script>
 </body>
