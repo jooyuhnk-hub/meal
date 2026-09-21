@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리집 식단표</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#ffffff;
+    --ink:#1c2118;
+    --ink-dim:#666f60;
+    --ink-faint:#98a08e;
+    --accent:#cf5330;
+    --accent-ink:#ffffff;
+    --accent-soft:#fbe8de;
+    --accent2:#3f7350;
+    --accent2-ink:#ffffff;
+    --accent2-soft:#e4efe3;
+    --surface:#f4f6f0;
+    --surface-border:#e3e7db;
+    --surface2:#ecefe5;
+    --weekend:#fbeee6;
+    --warn-bg:#fdf1dc;
+    --warn-ink:#8a5a00;
+    --shadow:0 3px 14px rgba(35,45,25,.09);
+    --radius:16px;
+    --radius-sm:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14170f;
+      --ink:#eef1e7;
+      --ink-dim:#a9b19c;
+      --ink-faint:#6d7566;
+      --accent:#f0764c;
+      --accent-ink:#1c1006;
+      --accent-soft:#3a2418;
+      --accent2:#79c191;
+      --accent2-ink:#0c1a10;
+      --accent2-soft:#1c2c1f;
+      --surface:#1c2016;
+      --surface-border:#2c3225;
+      --surface2:#232a1c;
+      --weekend:#2c211a;
+      --warn-bg:#332609;
+      --warn-ink:#f0c375;
+      --shadow:0 3px 14px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14170f;
+    --ink:#eef1e7;
+    --ink-dim:#a9b19c;
+    --ink-faint:#6d7566;
+    --accent:#f0764c;
+    --accent-ink:#1c1006;
+    --accent-soft:#3a2418;
+    --accent2:#79c191;
+    --accent2-ink:#0c1a10;
+    --accent2-soft:#1c2c1f;
+    --surface:#1c2016;
+    --surface-border:#2c3225;
+    --surface2:#232a1c;
+    --weekend:#2c211a;
+    --warn-bg:#332609;
+    --warn-ink:#f0c375;
+    --shadow:0 3px 14px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+    padding-left:16px;padding-right:16px;
+    max-width:640px;
+    margin:0 auto;
+  }
+  h1,h2,h3{font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-weight:400;margin:0;}
+  .display{font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;}
+  p{margin:0;}
+  button{font-family:inherit;}
+  ::selection{background:var(--accent-soft);}
+
+  header.top{
+    position:sticky;top:env(safe-area-inset-top,0px);
+    background:var(--bg);
+    padding-top:14px;padding-bottom:8px;
+    z-index:20;
+    display:flex;flex-direction:column;gap:10px;
+    border-bottom:1px solid var(--surface-border);
+  }
+  .brand{display:flex;align-items:baseline;gap:8px;}
+  .brand h1{font-size:22px;color:var(--ink);}
+  .brand span{font-size:12px;color:var(--ink-faint);}
+  nav.tabs{display:flex;gap:6px;}
+  nav.tabs button{
+    flex:1;padding:9px 4px;border:none;border-radius:999px;
+    background:transparent;color:var(--ink-dim);font-size:14px;font-weight:600;
+    cursor:pointer;transition:background .15s,color .15s;
+  }
+  nav.tabs button.active{background:var(--accent);color:var(--accent-ink);}
+
+  main{padding-top:14px;padding-bottom:96px;}
+  section[hidden]{display:none!important;}
+
+  .status-bar{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    background:var(--surface);border:1px solid var(--surface-border);
+    border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;
+    font-size:12.5px;color:var(--ink-dim);
+  }
+  .status-bar b{color:var(--ink);font-weight:600;}
+  .badge{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;
+  }
+  .badge.ok{background:var(--accent2-soft);color:var(--accent2);}
+  .badge.warn{background:var(--warn-bg);color:var(--warn-ink);}
+  .status-bar .spacer{flex:1;}
+  .status-bar button.reshuffle{
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);
+    border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;
+  }
+
+  .week{margin-bottom:22px;}
+  .week h2{font-size:16px;color:var(--ink-dim);margin-bottom:8px;padding-left:2px;}
+  .week h2 b{color:var(--ink);}
+  .daycard{
+    border:1px solid var(--surface-border);border-radius:var(--radius-sm);
+    margin-bottom:7px;overflow:hidden;background:var(--bg);
+  }
+  .daycard.weekend{background:var(--weekend);}
+  .daylabel{
+    display:flex;align-items:center;gap:8px;padding:8px 12px 2px;
+    font-size:12.5px;color:var(--ink-dim);font-weight:600;
+  }
+  .meal-row{
+    display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer;
+    border-top:1px solid var(--surface-border);
+  }
+  .meal-row:first-of-type{border-top:none;}
+  .meal-row:active{background:var(--surface2);}
+  .meal-tag{
+    font-size:11.5px;color:var(--ink-faint);width:34px;flex:none;font-weight:600;
+  }
+  .meal-dish{flex:1;font-size:15px;font-weight:500;}
+  .meal-dish.empty{color:var(--ink-faint);font-weight:400;}
+  .lock-pill{
+    display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;
+    color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:2px 8px;flex:none;
+  }
+  .chev{color:var(--ink-faint);font-size:13px;flex:none;}
+
+  .shop-week{
+    border:1px solid var(--surface-border);border-radius:var(--radius);
+    margin-bottom:16px;overflow:hidden;
+  }
+  .shop-week h2{
+    background:var(--accent2);color:var(--accent2-ink);
+    padding:10px 14px;font-size:15px;font-weight:400;
+  }
+  .shop-row{padding:10px 14px;border-top:1px solid var(--surface-border);}
+  .shop-row .meta{display:flex;gap:8px;align-items:baseline;font-size:12.5px;color:var(--ink-dim);margin-bottom:2px;}
+  .shop-row .meta b{color:var(--ink);font-size:14px;font-weight:600;}
+  .shop-row .ing{font-size:13.5px;color:var(--ink-dim);line-height:1.5;}
+  .shop-row .ing.none{color:var(--ink-faint);font-style:italic;}
+
+  .settings-block{
+    border:1px solid var(--surface-border);border-radius:var(--radius);
+    padding:14px;margin-bottom:16px;background:var(--surface);
+  }
+  .settings-block h3{font-size:15px;margin-bottom:10px;color:var(--ink);}
+  .field-row{display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap;}
+  .field-row label{font-size:13px;color:var(--ink-dim);width:64px;flex:none;}
+  .field-row input[type=date],.field-row input[type=number]{
+    flex:1;min-width:110px;padding:8px 10px;border-radius:var(--radius-sm);
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);font-size:14px;
+  }
+  .kdate{display:flex;gap:6px;flex:1;min-width:190px;}
+  .kdate select{
+    flex:1;min-width:0;padding:8px 4px;border-radius:var(--radius-sm);
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);font-size:13.5px;
+  }
+  .hint{font-size:12px;color:var(--ink-faint);margin-top:2px;}
+
+  .dish-list{display:flex;flex-direction:column;gap:8px;}
+  .dish-card{
+    border:1px solid var(--surface-border);border-radius:var(--radius-sm);
+    background:var(--bg);overflow:hidden;
+  }
+  .dish-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;}
+  .dish-head .name{flex:1;font-size:14.5px;font-weight:600;}
+  .dish-head .count{font-size:11.5px;color:var(--ink-faint);}
+  .dish-body{padding:0 12px 12px;border-top:1px solid var(--surface-border);}
+  .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;}
+  .chip{
+    display:inline-flex;align-items:center;gap:5px;
+    background:var(--surface2);border-radius:999px;padding:5px 6px 5px 11px;font-size:12.5px;
+  }
+  .chip button{border:none;background:none;color:var(--ink-faint);cursor:pointer;font-size:13px;padding:2px 5px;line-height:1;}
+  .inline-add{display:flex;gap:6px;}
+  .inline-add input{
+    flex:1;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:13.5px;
+  }
+  .btn{
+    border:none;border-radius:var(--radius-sm);padding:7px 13px;font-size:13.5px;font-weight:600;
+    cursor:pointer;background:var(--surface2);color:var(--ink);
+  }
+  .btn.primary{background:var(--accent);color:var(--accent-ink);}
+  .btn.danger{background:transparent;color:#c23b3b;}
+  .btn.block{width:100%;padding:10px;}
+  .remove-x{border:none;background:none;color:var(--ink-faint);cursor:pointer;font-size:16px;padding:4px 6px;}
+
+  .override-row{
+    display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--surface-border);
+  }
+  .override-row:first-of-type{border-top:none;}
+  .override-row .info{flex:1;font-size:13.5px;}
+  .override-row .info b{font-weight:600;}
+  .override-row .info span{color:var(--ink-dim);}
+
+  .fab{
+    position:fixed;right:calc(16px + env(safe-area-inset-right,0px));
+    bottom:calc(20px + env(safe-area-inset-bottom,0px));
+    background:var(--accent);color:var(--accent-ink);border:none;
+    border-radius:999px;padding:14px 20px;font-size:14.5px;font-weight:700;
+    box-shadow:var(--shadow);cursor:pointer;display:flex;align-items:center;gap:7px;
+    z-index:30;
+  }
+
+  .sheet-overlay{
+    position:fixed;inset:0;background:rgba(10,14,8,.42);z-index:50;
+    display:flex;align-items:flex-end;justify-content:center;
+  }
+  .sheet{
+    background:var(--bg);width:100%;max-width:640px;border-radius:20px 20px 0 0;
+    padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -6px 24px rgba(0,0,0,.18);
+    max-height:82vh;overflow-y:auto;
+  }
+  .sheet h3{font-size:17px;margin-bottom:14px;}
+  .sheet .field{margin-bottom:12px;}
+  .sheet .field label{display:block;font-size:12.5px;color:var(--ink-dim);margin-bottom:5px;font-weight:600;}
+  .sheet input[type=date],.sheet select,.sheet input[type=text]{
+    width:100%;padding:10px 11px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:15px;
+  }
+  .seg{display:flex;gap:8px;}
+  .seg button{
+    flex:1;padding:9px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:14px;cursor:pointer;
+  }
+  .seg button.on{background:var(--accent2);border-color:var(--accent2);color:var(--accent2-ink);font-weight:700;}
+  .sheet .actions{display:flex;gap:8px;margin-top:16px;}
+  .sheet .actions .btn{flex:1;}
+
+  .toast{
+    position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom,0px));
+    transform:translateX(-50%);background:var(--ink);color:var(--bg);
+    padding:9px 16px;border-radius:999px;font-size:13px;z-index:60;
+    opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .toast.show{opacity:1;}
+
+  .empty-note{
+    text-align:center;color:var(--ink-faint);font-size:13.5px;padding:30px 10px;
+  }
+  .conn-note{
+    font-size:11.5px;color:var(--warn-ink);background:var(--warn-bg);
+    border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px;
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>🍚 우리집 식단표</h1>
+    <span>2인 기준 · 폰에서 바로 확인</span>
+  </div>
+  <nav class="tabs">
+    <button data-tab="plan" class="active">이번 식단</button>
+    <button data-tab="shop">장보기</button>
+    <button data-tab="settings">설정</button>
+  </nav>
+</header>
+
+<main>
+  <div id="connNote"></div>
+
+  <section id="tab-plan">
+    <div class="status-bar" id="statusBar"></div>
+    <div id="planList"></div>
+  </section>
+
+  <section id="tab-shop" hidden>
+    <div id="shopList"></div>
+  </section>
+
+  <section id="tab-settings" hidden>
+    <div class="settings-block">
+      <h3>기본 설정</h3>
+      <div class="field-row"><label>시작일</label><div id="inStartHost"></div></div>
+      <div class="field-row"><label>주 수</label><input type="number" id="inWeeks" min="1" max="12"></div>
+      <div class="field-row"><label>시드</label>
+        <input type="number" id="inSeed" style="max-width:90px">
+        <button class="btn" id="btnShuffle" type="button">🎲 다른 조합</button>
+      </div>
+      <p class="hint">시드를 바꾸면 자동배정 조합이 통째로 바뀌어요. 마음에 드는 조합이 나올 때까지 눌러보세요.</p>
+    </div>
+
+    <div class="settings-block">
+      <h3>요리 목록 &amp; 재료 (2인 기준)</h3>
+      <p class="hint" style="margin-bottom:10px;">요리를 눌러 재료를 추가/삭제할 수 있어요. 재료가 없는 메뉴(배달·편의점 등)는 장보기 리스트에서 재료 칸이 비어요.</p>
+      <div class="dish-list" id="dishList"></div>
+      <div class="inline-add" style="margin-top:10px;">
+        <input type="text" id="inNewDish" placeholder="새 요리 이름">
+        <button class="btn primary" id="btnAddDish" type="button">추가</button>
+      </div>
+    </div>
+
+    <div class="settings-block">
+      <h3>고정해둔 메뉴</h3>
+      <div id="overrideList"></div>
+      <p class="hint" id="overrideEmpty">아직 고정해둔 메뉴가 없어요.</p>
+    </div>
+  </section>
+</main>
+
+<button class="fab" id="fabLock" hidden>🔒 메뉴 고정하기</button>
+<div class="toast" id="toast"></div>
+<div id="sheetHost"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ======== 동기화 설정 (선택) ========================================
+  // apiKey를 비워두면 이 기기의 브라우저에만 저장되는 "로컬 전용" 모드로 동작해요.
+  // 무료 Firebase 프로젝트를 만들고 아래 6개 값을 채워 넣으면, 같은 값을 넣은
+  // 다른 기기(여자친구 폰 등)와 자동으로 실시간 동기화돼요. 클로드 로그인은
+  // 전혀 필요 없고, 구글 계정으로 만든 Firebase 프로젝트만 있으면 돼요.
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBjP_ST5amMrMdA79cG6p2rxcdAhKAfRIE",
+    authDomain: "meal-58464.firebaseapp.com",
+    projectId: "meal-58464",
+    storageBucket: "meal-58464.firebasestorage.app",
+    messagingSenderId: "413811231839",
+    appId: "1:413811231839:web:ce57062861d6a71f875fea"
+  };
+  // 같은 값을 넣은 기기끼리만 서로 동기화돼요. 두 대 이상 같이 쓸 계획이면
+  // 이 문자열은 그대로 둬도 되고, 원하면 아무 문자열로나 바꿔도 돼요.
+  var SYNC_DOC_PATH = "mealplan/shared";
+  var FIREBASE_SDK_VERSION = "12.19.0";
+  // ======================================================================
+
+  var MEAL_LABEL = {lunch:"점심", dinner:"저녁"};
+  var WD_LABEL = ["일","월","화","수","목","금","토"];
+
+  // ---------- date helpers (UTC epoch-day based, avoids TZ bugs) ----------
+  function toEpochDay(y,m,d){ return Math.floor(Date.UTC(y,m-1,d)/86400000); }
+  function fromEpochDay(e){
+    var dt = new Date(e*86400000);
+    return {y:dt.getUTCFullYear(), m:dt.getUTCMonth()+1, d:dt.getUTCDate(), wd:dt.getUTCDay()};
+  }
+  function parseISO(s){ var p=s.split("-").map(Number); return toEpochDay(p[0],p[1],p[2]); }
+  function toISO(e){ var f=fromEpochDay(e); return f.y+"-"+String(f.m).padStart(2,"0")+"-"+String(f.d).padStart(2,"0"); }
+  function isoWeekdayMon1(e){ var wd=fromEpochDay(e).wd; return wd===0?7:wd; }
+  function dispDate(e){ var f=fromEpochDay(e); return f.m+"/"+f.d+"("+WD_LABEL[f.wd]+")"; }
+
+  // ---------- Korean-language date picker (년/월/일 selects) ----------
+  // A native <input type="date"> renders its calendar in the BROWSER'S
+  // locale, not the page's — on an English-locale browser it shows up in
+  // English even though every label on this page is Korean. Three plain
+  // <select> elements sidestep that entirely: the option text is ours, so
+  // it's always Korean regardless of the viewer's browser/OS language.
+  function daysInMonth(y,m){ return new Date(Date.UTC(y,m,0)).getUTCDate(); }
+  function kdateHTML(prefix, iso){
+    var p = iso.split("-").map(Number);
+    var y=p[0], m=p[1], d=p[2];
+    var baseY = new Date().getUTCFullYear();
+    var startY = Math.min(baseY, y) - 1, endY = Math.max(baseY, y) + 3;
+    var yOpts = "", mOpts = "", dOpts = "";
+    for (var yy=startY; yy<=endY; yy++){ yOpts += '<option value="'+yy+'"'+(yy===y?" selected":"")+'>'+yy+'년</option>'; }
+    for (var mm=1; mm<=12; mm++){ mOpts += '<option value="'+mm+'"'+(mm===m?" selected":"")+'>'+mm+'월</option>'; }
+    var nDays = daysInMonth(y,m);
+    for (var dd=1; dd<=nDays; dd++){ dOpts += '<option value="'+dd+'"'+(dd===d?" selected":"")+'>'+dd+'일</option>'; }
+    return '<div class="kdate">' +
+      '<select id="'+prefix+'Y">'+yOpts+'</select>' +
+      '<select id="'+prefix+'M">'+mOpts+'</select>' +
+      '<select id="'+prefix+'D">'+dOpts+'</select>' +
+      '</div>';
+  }
+  function kdateRead(prefix){
+    var y = parseInt(document.getElementById(prefix+"Y").value,10);
+    var m = parseInt(document.getElementById(prefix+"M").value,10);
+    var d = parseInt(document.getElementById(prefix+"D").value,10);
+    return y+"-"+String(m).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+  }
+  function kdateWire(prefix, onChange){
+    var ySel=document.getElementById(prefix+"Y"), mSel=document.getElementById(prefix+"M"), dSel=document.getElementById(prefix+"D");
+    function syncDay(){
+      var y=parseInt(ySel.value,10), m=parseInt(mSel.value,10);
+      var curD=parseInt(dSel.value,10);
+      var n=daysInMonth(y,m);
+      var opts="";
+      for (var d=1; d<=n; d++){ opts += '<option value="'+d+'"'+(d===curD?" selected":"")+'>'+d+'일</option>'; }
+      dSel.innerHTML = opts;
+      if (curD>n) dSel.value = String(n);
+    }
+    ySel.onchange = function(){ syncDay(); onChange(kdateRead(prefix)); };
+    mSel.onchange = function(){ syncDay(); onChange(kdateRead(prefix)); };
+    dSel.onchange = function(){ onChange(kdateRead(prefix)); };
+  }
+
+  // ---------- default / seed state (used only if the shared store is empty or unreachable) ----------
+  function defaultState(){
+    return {
+      startDate: "2026-09-21",
+      weeks: 4,
+      seed: 19,
+      dishes: ["고추장 찌개","우삼겹 파스타","수육","라면","배달","알올","베이컨볶음밥","피자",
+        "치킨마요","오징어볶음","스팸마요","나시고랭","닭도리탕","닭구이(양념)","닭구이(간장)",
+        "편의점","떡만두국","등갈비찜","갈비탕","감자탕","제육","떡만두국","떡볶이","차돌들깨수제비"],
+      ingredients: {
+        "고추장 찌개":["돼지고기(찌개용) 200g","애호박 1/2개","감자 1개","양파 1/2개","두부 1/2모","고추장 2T","대파 1대","다진마늘 1T"],
+        "우삼겹 파스타":["우삼겹 200g","파스타면 200g","양파 1/2개","마늘 5쪽","버터 1T","간장 1T","후추 약간"],
+        "수육":["돼지고기(삼겹/앞다리) 600g","대파 1대","마늘 1통","된장 1T","월계수잎 2장","쌈배추·상추 1팩"],
+        "라면":["라면 2봉지","계란 2개","대파 1/2대"],
+        "베이컨볶음밥":["베이컨 150g","밥 2공기","계란 2개","대파 1대","간장 1T","후추 약간"],
+        "치킨마요":["닭가슴살·닭다리살 300g","밥 2공기","마요네즈 3T","계란 2개","튀김가루 4T","김가루 약간"],
+        "오징어볶음":["오징어 2마리","양파 1/2개","당근 1/3개","대파 1대","고추장 2T","고춧가루 1T","다진마늘 1T","설탕 1T"],
+        "스팸마요":["스팸 1캔","밥 2공기","마요네즈 2T","계란 2개","김가루 약간"],
+        "나시고랭":["밥 2공기","닭고기·새우 150g","계란 2개","양파 1/2개","케첩 2T","굴소스 1T","고춧가루 1t"],
+        "닭도리탕":["닭볶음탕용 닭 700g","감자 2개","당근 1/2개","양파 1개","고추장 3T","고춧가루 2T","간장 2T","다진마늘 1T"],
+        "닭구이(양념)":["닭다리살 400g","고추장 2T","고춧가루 1T","간장 1T","다진마늘 1T","설탕 1T"],
+        "닭구이(간장)":["닭다리살 400g","간장 3T","다진마늘 1T","맛술 1T","설탕 1T"],
+        "떡만두국":["떡국떡 300g","만두 10개","계란 1개","대파 1대","국간장 1T","다진마늘 1t"],
+        "등갈비찜":["등갈비 600g","감자 2개","당근 1/2개","양파 1개","간장 4T","설탕 2T","다진마늘 1T"],
+        "갈비탕":["소갈비 500g","무 1/4개","대파 1대","다진마늘 1T","국간장 1T"],
+        "감자탕":["돼지등뼈 800g","감자 3개","우거지 200g","깻잎 10장","들깨가루 3T","감자탕양념(시판) 1개"],
+        "제육":["돼지고기(앞다리·목살) 400g","양파 1/2개","대파 1대","고추장 2T","고춧가루 1T","간장 1T","다진마늘 1T","설탕 1T"],
+        "떡볶이":["떡볶이떡 400g","어묵 2장","대파 1대","고추장 2T","고춧가루 1T","설탕 1T","간장 1t"],
+        "알올":["스파게티면 200g","마늘 8쪽","올리브오일 4T","페페론치노(건고추) 2개","파슬리가루 약간","소금 약간","파마산치즈가루 약간"]
+      },
+      overrides: [
+        {id:"ov1", date:"2026-09-23", meal:"dinner", dish:"피자"}
+      ]
+    };
+  }
+
+  // ---------- plan generation ----------
+  // Ported 1:1 from the spreadsheet's 계산2 sheet: same sine-hash score per
+  // candidate dish, same "slot index" seed input (the spreadsheet assigns a
+  // row to EVERY day's lunch AND dinner slot, even inactive weekday-lunch
+  // rows, and numbers slots 1,2,3... in that row order — so the seed input
+  // is d*2+1 for lunch / d*2+2 for dinner, not the day index). Verified
+  // against the workbook slot-by-slot (0 mismatches) before shipping.
+  // Same override-aware 10-day no-repeat guard as the fixed xlsx: a manually
+  // locked dish also blocks the auto-picker for 10 days, both directions.
+  function pseudoRandom(seed, slotIndex, k){
+    var v = Math.abs(Math.sin(seed*0.9137 + slotIndex*12.9898 + k*4.1414)) * 43758.5453;
+    return v - Math.floor(v);
+  }
+  function generatePlan(state){
+    var startEpoch = parseISO(state.startDate);
+    var dishes = state.dishes || [];
+    var overrides = state.overrides || [];
+    var nDishes = dishes.length;
+    // history bucketed by dish index for O(1) recency checks instead of a
+    // linear scan per (slot,candidate) pair
+    var lastSeenByDish = Object.create(null);
+    var slots = [];
+    var totalDays = (state.weeks||1)*7;
+    for (var d=0; d<totalDays; d++){
+      var epoch = startEpoch + d;
+      var isWeekend = isoWeekdayMon1(epoch) >= 6;
+      var mealDefs = [
+        {meal:"lunch", active:isWeekend, slotIndex: d*2+1},
+        {meal:"dinner", active:true, slotIndex: d*2+2}
+      ];
+      for (var mi=0; mi<mealDefs.length; mi++){
+        var md = mealDefs[mi];
+        if (!md.active) continue;
+        var meal = md.meal, slotIndex = md.slotIndex;
+        var bestIdx = -1, bestScore = Infinity;
+        for (var k=1; k<=nDishes; k++){
+          var dishName = dishes[k-1];
+          var recentAuto = (lastSeenByDish[k] !== undefined) && (lastSeenByDish[k] > epoch-10);
+          var recentOverride = false;
+          if (!recentAuto){
+            for (var oi=0; oi<overrides.length; oi++){
+              var oEpoch = parseISO(overrides[oi].date);
+              if (overrides[oi].dish===dishName && oEpoch > epoch-10 && oEpoch <= epoch){ recentOverride=true; break; }
+            }
+          }
+          var score = (recentAuto||recentOverride) ? 1 : pseudoRandom(state.seed||1, slotIndex, k);
+          if (score < bestScore){ bestScore=score; bestIdx=k; }
+        }
+        if (bestIdx===-1) bestIdx = 1;
+        var autoDish = nDishes ? dishes[bestIdx-1] : "";
+        lastSeenByDish[bestIdx] = epoch;
+        var dateISO = toISO(epoch);
+        var ov = null;
+        for (var oj=0; oj<overrides.length; oj++){
+          if (overrides[oj].date===dateISO && overrides[oj].meal===meal){ ov = overrides[oj]; break; }
+        }
+        slots.push({
+          epoch: epoch, dateISO: dateISO, weekIdx: Math.floor(d/7), meal: meal,
+          auto: autoDish, final: ov ? ov.dish : autoDish, isOverride: !!ov
+        });
+      }
+    }
+    return slots;
+  }
+
+  // ---------- app state ----------
+  var state = defaultState();
+  var storageOK = true;
+  var activeTab = "plan";
+  var saveTimer = null;
+  var expandedDish = null;
+
+  function cloneState(){ return JSON.parse(JSON.stringify(state)); }
+  // scheduleSave() is defined further down, next to the localStorage wiring it needs.
+
+  function showToast(msg){
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function(){ t.classList.remove("show"); }, 1800);
+  }
+
+  // ---------- rendering ----------
+  // Plan is computed ONCE per state change (not once per tab) and only the
+  // tab currently on screen is actually re-rendered; the other two are
+  // marked dirty and rendered lazily the moment the user switches to them.
+  // This is what removed the visible lag on phones (three full DOM rebuilds
+  // per tap, most of them for tabs no one was looking at).
+  var lastSlots = null;
+  var tabDirty = {plan:true, shop:true, settings:true};
+
+  function renderAll(){
+    lastSlots = generatePlan(state);
+    tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true;
+    renderStatusBar();
+    renderActiveTab();
+  }
+  function renderActiveTab(){
+    if (activeTab==="plan" && tabDirty.plan){ renderPlan(lastSlots); tabDirty.plan=false; }
+    else if (activeTab==="shop" && tabDirty.shop){ renderShop(lastSlots); tabDirty.shop=false; }
+    else if (activeTab==="settings" && tabDirty.settings){ renderSettings(); tabDirty.settings=false; }
+  }
+
+  function renderStatusBar(){
+    var bar = document.getElementById("statusBar");
+    var n = (state.dishes||[]).length;
+    var ok = n >= 14;
+    bar.innerHTML =
+      '<span class="badge ' + (ok?"ok":"warn") + '">' + (ok?"✅ 요리 " + n + "개":"⚠ 요리 " + n + "개, 14개+ 추천") + '</span>' +
+      '<span>시작 <b>' + fmtKDate(state.startDate) + '</b> · <b>' + state.weeks + '주</b></span>' +
+      '<span class="spacer"></span>' +
+      '<button class="reshuffle" id="quickShuffle" type="button">🎲 시드 ' + state.seed + '</button>';
+    document.getElementById("quickShuffle").onclick = function(){
+      state.seed = 1 + Math.floor(Math.random()*9998);
+      scheduleSave(); renderAll();
+      showToast("새 조합으로 바꿨어요");
+    };
+  }
+  function fmtKDate(iso){
+    var e = parseISO(iso); var f = fromEpochDay(e);
+    return f.m + "월 " + f.d + "일";
+  }
+
+  function renderPlan(slots){
+    var host = document.getElementById("planList");
+    var dishes = state.dishes||[];
+    if (!dishes.length){
+      host.innerHTML = '<p class="empty-note">설정 탭에서 요리를 먼저 추가해주세요.</p>';
+      return;
+    }
+    var byWeek = {};
+    slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
+    var html = "";
+    Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
+      var arr = byWeek[wk];
+      html += '<div class="week"><h2><b>' + (parseInt(wk,10)+1) + '주</b> · ' + dispDate(arr[0].epoch) + ' ~ ' + dispDate(arr[arr.length-1].epoch) + '</h2>';
+      var byDate = {};
+      arr.forEach(function(s){ (byDate[s.dateISO]=byDate[s.dateISO]||[]).push(s); });
+      Object.keys(byDate).forEach(function(dateISO){
+        var daySlots = byDate[dateISO];
+        var isWeekend = isoWeekdayMon1(daySlots[0].epoch) >= 6;
+        html += '<div class="daycard' + (isWeekend?" weekend":"") + '"><div class="daylabel">' + dispDate(daySlots[0].epoch) + '</div>';
+        daySlots.forEach(function(s){
+          html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
+            '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
+            '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final || "미정") + '</span>' +
+            (s.isOverride ? '<span class="lock-pill">🔒 고정</span>' : '') +
+            '<span class="chev">›</span></div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+    host.innerHTML = html;
+    Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
+      row.onclick = function(){ openLockSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+    });
+  }
+
+  function renderShop(slots){
+    var host = document.getElementById("shopList");
+    var dishes = state.dishes||[];
+    if (!dishes.length){ host.innerHTML = '<p class="empty-note">설정 탭에서 요리를 먼저 추가해주세요.</p>'; return; }
+    var byWeek = {};
+    slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
+    var html = "";
+    Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
+      var arr = byWeek[wk];
+      html += '<div class="shop-week"><h2>🛒 ' + (parseInt(wk,10)+1) + '주 장보기 — 그 주 시작 전에 준비하세요</h2>';
+      arr.forEach(function(s){
+        var ing = (state.ingredients && state.ingredients[s.final]) ? state.ingredients[s.final] : null;
+        html += '<div class="shop-row"><div class="meta"><b>' + dispDate(s.epoch) + '</b><span>' + MEAL_LABEL[s.meal] + '</span><span>' + (s.final||"미정") + '</span></div>' +
+          (ing ? '<div class="ing">' + ing.join(" · ") + '</div>' : '<div class="ing none">재료 미등록 (배달/편의점이거나 재료를 아직 안 넣은 메뉴예요)</div>') +
+          '</div>';
+      });
+      html += '</div>';
+    });
+    host.innerHTML = html;
+  }
+
+  function renderSettings(){
+    document.getElementById("inStartHost").innerHTML = kdateHTML("inStart", state.startDate);
+    kdateWire("inStart", function(iso){ state.startDate = iso; scheduleSave(); renderAll(); });
+    document.getElementById("inWeeks").value = state.weeks;
+    document.getElementById("inSeed").value = state.seed;
+
+    var dishHost = document.getElementById("dishList");
+    var dishes = state.dishes||[];
+    var html = "";
+    dishes.forEach(function(name, idx){
+      var ing = (state.ingredients && state.ingredients[name]) || [];
+      var open = (expandedDish === idx);
+      html += '<div class="dish-card">' +
+        '<div class="dish-head" data-idx="' + idx + '">' +
+          '<span class="name">' + name + '</span>' +
+          '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
+          '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
+        '</div>';
+      if (open){
+        html += '<div class="dish-body">' +
+          '<div class="chip-row">' +
+          (ing.length ? ing.map(function(item, ii){
+            return '<span class="chip">' + item + '<button data-ding="' + idx + '" data-dii="' + ii + '">✕</button></span>';
+          }).join("") : '<span class="hint">아직 재료가 없어요</span>') +
+          '</div>' +
+          '<div class="inline-add">' +
+            '<input type="text" placeholder="재료 추가 (예: 대파 1대)" data-ding-add="' + idx + '">' +
+            '<button class="btn" data-ding-btn="' + idx + '" type="button">추가</button>' +
+          '</div>' +
+        '</div>';
+      }
+      html += '</div>';
+    });
+    dishHost.innerHTML = html || '<p class="hint">아직 요리가 없어요.</p>';
+
+    Array.prototype.forEach.call(dishHost.querySelectorAll(".dish-head"), function(el){
+      el.onclick = function(e){
+        if (e.target.closest("[data-remove]")) return;
+        var idx = parseInt(el.getAttribute("data-idx"),10);
+        expandedDish = (expandedDish===idx) ? null : idx;
+        renderSettings();
+      };
+    });
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-remove]"), function(el){
+      el.onclick = function(e){
+        e.stopPropagation();
+        var idx = parseInt(el.getAttribute("data-remove"),10);
+        var name = state.dishes[idx];
+        if (!confirm('"' + name + '"을(를) 요리 목록에서 삭제할까요?')) return;
+        state.dishes.splice(idx,1);
+        expandedDish = null;
+        scheduleSave(); renderAll();
+      };
+    });
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-dii]"), function(el){
+      el.onclick = function(){
+        var idx = parseInt(el.getAttribute("data-ding"),10);
+        var ii = parseInt(el.getAttribute("data-dii"),10);
+        var name = state.dishes[idx];
+        state.ingredients[name].splice(ii,1);
+        scheduleSave(); renderAll();
+      };
+    });
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-ding-btn]"), function(btn){
+      btn.onclick = function(){
+        var idx = parseInt(btn.getAttribute("data-ding-btn"),10);
+        var input = dishHost.querySelector('[data-ding-add="'+idx+'"]');
+        var val = input.value.trim();
+        if (!val) return;
+        var name = state.dishes[idx];
+        state.ingredients[name] = state.ingredients[name] || [];
+        state.ingredients[name].push(val);
+        input.value = "";
+        scheduleSave(); renderAll();
+      };
+    });
+
+    var ovHost = document.getElementById("overrideList");
+    var overrides = state.overrides||[];
+    document.getElementById("overrideEmpty").hidden = overrides.length>0;
+    ovHost.innerHTML = overrides.slice().sort(function(a,b){return a.date<b.date?-1:1;}).map(function(o){
+      return '<div class="override-row"><div class="info"><b>' + fmtKDate(o.date) + '</b> <span>' + MEAL_LABEL[o.meal] + ' · ' + o.dish + '</span></div>' +
+        '<button class="btn danger" data-unlock="' + o.id + '">해제</button></div>';
+    }).join("");
+    Array.prototype.forEach.call(ovHost.querySelectorAll("[data-unlock]"), function(btn){
+      btn.onclick = function(){
+        var id = btn.getAttribute("data-unlock");
+        state.overrides = state.overrides.filter(function(o){return o.id!==id;});
+        scheduleSave(); renderAll();
+      };
+    });
+  }
+
+  // ---------- lock sheet ----------
+  function openLockSheet(dateISO, meal){
+    var host = document.getElementById("sheetHost");
+    var existing = (state.overrides||[]).find(function(o){return o.date===dateISO && o.meal===meal;});
+    var dishOptions = (state.dishes||[]).slice().filter(function(v,i,a){return a.indexOf(v)===i;});
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML =
+      '<div class="sheet">' +
+        '<h3>🔒 메뉴 고정하기</h3>' +
+        '<div class="field"><label>날짜</label><div id="lkDateHost"></div></div>' +
+        '<div class="field"><label>끼니</label><div class="seg">' +
+          '<button type="button" data-meal="lunch" class="' + (meal==="lunch"?"on":"") + '">점심</button>' +
+          '<button type="button" data-meal="dinner" class="' + (meal==="dinner"?"on":"") + '">저녁</button>' +
+        '</div></div>' +
+        '<div class="field"><label>메뉴</label>' +
+          '<input type="text" id="lkDish" list="dishOptionsList" placeholder="예: 치킨" value="' + (existing? existing.dish : "") + '">' +
+          '<datalist id="dishOptionsList">' + dishOptions.map(function(d){return '<option value="'+d+'">';}).join("") + '</datalist>' +
+        '</div>' +
+        '<p class="hint">고정한 메뉴는 이후 10일 동안 자동배정에서 제외돼요.</p>' +
+        '<div class="actions">' +
+          (existing ? '<button class="btn danger" id="lkRemove">고정 해제</button>' : '') +
+          '<button class="btn" id="lkCancel">취소</button>' +
+          '<button class="btn primary" id="lkSave">고정하기</button>' +
+        '</div>' +
+      '</div>';
+    host.innerHTML = "";
+    host.appendChild(overlay);
+    document.getElementById("lkDateHost").innerHTML = kdateHTML("lkDate", dateISO);
+    kdateWire("lkDate", function(){}); // no side effect needed; read on save via kdateRead
+    var curMeal = meal;
+    overlay.querySelectorAll("[data-meal]").forEach(function(b){
+      b.onclick = function(){
+        curMeal = b.getAttribute("data-meal");
+        overlay.querySelectorAll("[data-meal]").forEach(function(x){x.classList.toggle("on", x===b);});
+      };
+    });
+    overlay.onclick = function(e){ if (e.target===overlay) host.innerHTML=""; };
+    document.getElementById("lkCancel").onclick = function(){ host.innerHTML=""; };
+    if (existing){
+      document.getElementById("lkRemove").onclick = function(){
+        state.overrides = state.overrides.filter(function(o){return o.id!==existing.id;});
+        host.innerHTML = "";
+        scheduleSave(); renderAll();
+        showToast("고정을 해제했어요");
+      };
+    }
+    document.getElementById("lkSave").onclick = function(){
+      var d = kdateRead("lkDate");
+      var dish = document.getElementById("lkDish").value.trim();
+      if (!d || !dish){ showToast("날짜와 메뉴를 입력해주세요"); return; }
+      state.overrides = state.overrides||[];
+      var idx = state.overrides.findIndex(function(o){return o.date===d && o.meal===curMeal;});
+      var rec = {id: existing? existing.id : ("ov"+Date.now()), date:d, meal:curMeal, dish:dish};
+      if (idx>=0) state.overrides[idx]=rec; else state.overrides.push(rec);
+      host.innerHTML = "";
+      scheduleSave(); renderAll();
+      showToast("메뉴를 고정했어요 🔒");
+    };
+  }
+
+  // ---------- tabs ----------
+  document.querySelectorAll("nav.tabs button").forEach(function(btn){
+    btn.onclick = function(){
+      activeTab = btn.getAttribute("data-tab");
+      document.querySelectorAll("nav.tabs button").forEach(function(b){b.classList.toggle("active", b===btn);});
+      ["plan","shop","settings"].forEach(function(t){
+        document.getElementById("tab-"+t).hidden = (t!==activeTab);
+      });
+      document.getElementById("fabLock").hidden = (activeTab!=="plan");
+      renderActiveTab();
+    };
+  });
+  document.getElementById("fabLock").hidden = false;
+  document.getElementById("fabLock").onclick = function(){
+    var today = toISO(Math.floor(Date.now()/86400000));
+    openLockSheet(state.startDate < today ? state.startDate : today, "dinner");
+  };
+
+  // settings field wiring
+  // (시작일 field is wired in renderSettings() via kdateWire, since it's rebuilt on every render)
+  document.getElementById("inWeeks").onchange = function(e){
+    var v = Math.max(1, Math.min(12, parseInt(e.target.value,10)||1));
+    state.weeks = v; scheduleSave(); renderAll();
+  };
+  document.getElementById("inSeed").onchange = function(e){
+    state.seed = parseInt(e.target.value,10) || 1; scheduleSave(); renderAll();
+  };
+  document.getElementById("btnShuffle").onclick = function(){
+    state.seed = 1 + Math.floor(Math.random()*9998);
+    scheduleSave(); renderAll();
+    showToast("새 조합으로 바꿨어요");
+  };
+  document.getElementById("btnAddDish").onclick = function(){
+    var input = document.getElementById("inNewDish");
+    var v = input.value.trim();
+    if (!v) return;
+    state.dishes = state.dishes||[];
+    state.dishes.push(v);
+    input.value = "";
+    scheduleSave(); renderAll();
+  };
+
+  // ---------- persistence: localStorage always, Firebase sync if configured ----------
+  // Every device keeps a localStorage copy no matter what — that's what makes
+  // the app work offline and load instantly. If FIREBASE_CONFIG is filled in,
+  // we ALSO push/pull through a shared Firestore document, so every device
+  // pointed at the same config+SYNC_DOC_PATH converges to the same state in
+  // real time. No Claude account involved anywhere in this path.
+  var STORAGE_KEY = "mealplan_state_v1";
+  var syncEnabled = !!FIREBASE_CONFIG.apiKey;
+  var fsDoc = null;
+  var localRev = 0;
+  var seededOnce = false;
+
+  function saveLocal(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cloneState()));
+    }catch(e){
+      storageOK = false;
+    }
+  }
+
+  function loadLocal(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw){
+        var data = JSON.parse(raw);
+        if (data && data.dishes) return data;
+      }
+    }catch(e){
+      storageOK = false;
+    }
+    return null;
+  }
+
+  function scheduleSave(){
+    localRev++;
+    saveLocal(); // local copy is written right away, not debounced
+    if (!storageOK) showConnNote("⚠ 이 브라우저에서는 저장이 안 돼요(시크릿 모드 등). 보기는 되지만 새로고침하면 바뀐 내용이 사라져요.");
+    if (!syncEnabled || !fsDoc) return;
+    clearTimeout(saveTimer);
+    var revAtSchedule = localRev;
+    saveTimer = setTimeout(function(){
+      var payload = cloneState();
+      payload._rev = revAtSchedule;
+      fsDoc.set(payload).catch(function(){
+        showToast("동기화가 안 됐어요. 인터넷 연결을 확인해주세요.");
+      });
+    }, 450);
+  }
+
+  function boot(){
+    var saved = loadLocal();
+    if (saved) state = saved;
+    renderAll();
+    if (!storageOK) showConnNote("⚠ 이 브라우저에서는 저장이 안 돼요(시크릿 모드 등). 보기는 되지만 새로고침하면 바뀐 내용이 사라져요.");
+    if (syncEnabled) initSync();
+  }
+
+  function showConnNote(msg){
+    document.getElementById("connNote").innerHTML = '<div class="conn-note">' + msg + '</div>';
+  }
+  function clearConnNote(){
+    document.getElementById("connNote").innerHTML = "";
+  }
+
+  // ---------- optional Firebase sync ----------
+  // Loaded lazily (only when FIREBASE_CONFIG.apiKey is set) so a local-only
+  // install never fetches anything over the network. Uses the same
+  // "revision guard" pattern the earlier Claude-artifact version used: every
+  // local edit stamps a rising _rev, and an incoming snapshot is applied
+  // only if it's at least as new as the last local edit, so a slightly
+  // stale snapshot can never silently overwrite a fresh unsaved change.
+  function loadScript(src){
+    return new Promise(function(resolve, reject){
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = function(){ resolve(); };
+      s.onerror = function(){ reject(new Error("load failed: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function initSync(){
+    var base = "https://www.gstatic.com/firebasejs/" + FIREBASE_SDK_VERSION + "/";
+    Promise.all([
+      loadScript(base + "firebase-app-compat.js"),
+      loadScript(base + "firebase-auth-compat.js"),
+      loadScript(base + "firebase-firestore-compat.js")
+    ]).then(function(){
+      if (typeof firebase === "undefined"){ throw new Error("firebase missing"); }
+      firebase.initializeApp(FIREBASE_CONFIG);
+      var auth = firebase.auth();
+      var dbx = firebase.firestore();
+      var parts = SYNC_DOC_PATH.split("/");
+      fsDoc = dbx.collection(parts[0]).doc(parts[1]);
+
+      auth.onAuthStateChanged(function(user){
+        if (!user) return;
+        clearConnNote();
+        fsDoc.onSnapshot(function(snap){
+          if (snap.metadata && snap.metadata.hasPendingWrites) return; // our own echo
+          if (snap.exists){
+            var data = snap.data();
+            if (data && data.dishes){
+              var incomingRev = data._rev || 0;
+              if (incomingRev < localRev) return; // stale vs. a newer unsaved local edit
+              state = data;
+              localRev = incomingRev;
+              saveLocal();
+              renderAll();
+              return;
+            }
+          }
+          // empty doc: seed it once with whatever this device currently has
+          if (seededOnce || localRev > 0) return;
+          seededOnce = true;
+          var payload = cloneState();
+          payload._rev = localRev;
+          fsDoc.set(payload).catch(function(){ seededOnce = false; });
+        }, function(){
+          showConnNote("⚠ 동기화 연결이 끊겼어요. 이 기기의 저장은 계속 돼요.");
+        });
+      });
+      auth.signInAnonymously().catch(function(){
+        showConnNote("⚠ 동기화 로그인에 실패했어요. 이 기기의 저장은 계속 돼요.");
+      });
+    }).catch(function(){
+      showConnNote("⚠ 동기화 스크립트를 불러오지 못했어요(인터넷 연결 확인). 이 기기의 저장은 계속 돼요.");
+    });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
