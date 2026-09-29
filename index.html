@@ -141,6 +141,11 @@
     margin-bottom:7px;overflow:hidden;background:var(--bg);
   }
   .daycard.weekend{background:var(--weekend);}
+  .daycard.today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);}
+  .today-pill{
+    font-size:11px;font-weight:700;color:var(--accent-ink);background:var(--accent);
+    border-radius:999px;padding:1px 8px;
+  }
   .daylabel{
     display:flex;align-items:center;gap:8px;padding:8px 12px 2px;
     font-size:12.5px;color:var(--ink-dim);font-weight:600;
@@ -312,13 +317,10 @@
   <section id="tab-settings" hidden>
     <div class="settings-block">
       <h3>기본 설정</h3>
-      <div class="field-row"><label>시작일</label><div id="inStartHost"></div></div>
-      <div class="field-row"><label>주 수</label><input type="number" id="inWeeks" min="1" max="12"></div>
-      <div class="field-row"><label>시드</label>
-        <input type="number" id="inSeed" style="max-width:90px">
-        <button class="btn" id="btnShuffle" type="button">🎲 다른 조합</button>
-      </div>
-      <p class="hint">시드를 바꾸면 자동배정 조합이 통째로 바뀌어요. 마음에 드는 조합이 나올 때까지 눌러보세요.</p>
+      <div class="field-row"><label>보여줄 주</label><input type="number" id="inWeeks" min="1" max="12"></div>
+      <p class="hint" style="margin-bottom:12px;">식단표는 항상 오늘 날짜부터 자동으로 보여줘요. 지난 날짜는 알아서 사라져요.</p>
+      <button class="btn block" id="btnShuffle" type="button">🎲 다른 조합으로 바꾸기</button>
+      <p class="hint" style="margin-top:6px;">자동배정 메뉴가 통째로 바뀌어요. 고정한 메뉴는 그대로예요.</p>
     </div>
 
     <div class="settings-block">
@@ -425,15 +427,53 @@
     dSel.onchange = function(){ onChange(kdateRead(prefix)); };
   }
 
-  // ---------- default / seed state (used only if the shared store is empty or unreachable) ----------
+  // ---------- small helpers ----------
+  // "Today" in the phone's own timezone (KST), not UTC — otherwise the plan
+  // would still show yesterday until 9am in Korea.
+  function todayEpochLocal(){
+    var n = new Date();
+    return toEpochDay(n.getFullYear(), n.getMonth()+1, n.getDate());
+  }
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function uniqueDishes(list){
+    var seen = Object.create(null), out = [];
+    (list||[]).forEach(function(n){
+      var t = String(n == null ? "" : n).trim();
+      if (t && !seen[t]){ seen[t] = 1; out.push(t); }
+    });
+    return out;
+  }
+  function hash32(str){
+    var h = 0x811c9dc5;
+    for (var i=0; i<str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h >>> 0;
+  }
+  // Deterministic 0..1 score for (seed, position in the auto queue, dish).
+  // Keyed by dish NAME (not list position), so adding/removing one dish only
+  // nudges the slots that dish touches instead of reshuffling everything.
+  function rand01(seed, j, nameHash){
+    var h = Math.imul(seed|0, 0x9E3779B1) ^ Math.imul(j|0, 0x85EBCA77) ^ nameHash;
+    h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+    h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+
+  // ---------- default state / migration ----------
+  var SCHEMA = 2;
   function defaultState(){
     return {
-      startDate: "2026-09-21",
+      schema: SCHEMA,
+      anchorDate: toISO(todayEpochLocal()),
       weeks: 4,
-      seed: 19,
-      dishes: ["고추장 찌개","우삼겹 파스타","수육","라면","배달","알올","베이컨볶음밥","피자",
+      seed: 1 + Math.floor(Math.random()*9998),
+      dishes: uniqueDishes(["고추장 찌개","우삼겹 파스타","수육","라면","배달","알올","베이컨볶음밥","피자",
         "치킨마요","오징어볶음","스팸마요","나시고랭","닭도리탕","닭구이(양념)","닭구이(간장)",
-        "편의점","떡만두국","등갈비찜","갈비탕","감자탕","제육","떡만두국","떡볶이","차돌들깨수제비"],
+        "편의점","떡만두국","등갈비찜","갈비탕","감자탕","제육","떡볶이","차돌들깨수제비"]),
       ingredients: {
         "고추장 찌개":["돼지고기(찌개용) 200g","애호박 1/2개","감자 1개","양파 1/2개","두부 1/2모","고추장 2T","대파 1대","다진마늘 1T"],
         "우삼겹 파스타":["우삼겹 200g","파스타면 200g","양파 1/2개","마늘 5쪽","버터 1T","간장 1T","후추 약간"],
@@ -455,75 +495,151 @@
         "떡볶이":["떡볶이떡 400g","어묵 2장","대파 1대","고추장 2T","고춧가루 1T","설탕 1T","간장 1t"],
         "알올":["스파게티면 200g","마늘 8쪽","올리브오일 4T","페페론치노(건고추) 2개","파슬리가루 약간","소금 약간","파마산치즈가루 약간"]
       },
-      overrides: [
-        {id:"ov1", date:"2026-09-23", meal:"dinner", dish:"피자"}
-      ]
+      overrides: [],
+      dishJoin: {}
     };
+  }
+  function needsMigration(s){ return !s || !s.schema || s.schema < SCHEMA; }
+  // Old saves had a fixed startDate (9/21) + seed 19. Keep their dishes,
+  // ingredients and locks; turn the old start date into a fixed internal
+  // anchor (so the plan never drifts as days pass) and derive a new seed
+  // deterministically, so two phones migrating at once land on the SAME plan.
+  function migrate(s){
+    if (!s) return s;
+    if (needsMigration(s)){
+      s.anchorDate = s.anchorDate || s.startDate || toISO(todayEpochLocal());
+      s.seed = (hash32(s.anchorDate + "|" + (s.seed||0) + "|v2") % 9999) + 1;
+      delete s.startDate;
+      s.schema = SCHEMA;
+    }
+    s.dishes = uniqueDishes(s.dishes);
+    s.weeks = Math.max(1, Math.min(12, parseInt(s.weeks,10) || 4));
+    s.overrides = s.overrides || [];
+    s.ingredients = s.ingredients || {};
+    s.dishJoin = s.dishJoin || {};
+    return s;
   }
 
   // ---------- plan generation ----------
-  // Ported 1:1 from the spreadsheet's 계산2 sheet: same sine-hash score per
-  // candidate dish, same "slot index" seed input (the spreadsheet assigns a
-  // row to EVERY day's lunch AND dinner slot, even inactive weekday-lunch
-  // rows, and numbers slots 1,2,3... in that row order — so the seed input
-  // is d*2+1 for lunch / d*2+2 for dinner, not the day index). Verified
-  // against the workbook slot-by-slot (0 mismatches) before shipping.
-  // Same override-aware 10-day no-repeat guard as the fixed xlsx: a manually
-  // locked dish also blocks the auto-picker for 10 days, both directions.
-  function pseudoRandom(seed, slotIndex, k){
-    var v = Math.abs(Math.sin(seed*0.9137 + slotIndex*12.9898 + k*4.1414)) * 43758.5453;
-    return v - Math.floor(v);
-  }
-  function generatePlan(state){
-    var startEpoch = parseISO(state.startDate);
-    var dishes = state.dishes || [];
-    var overrides = state.overrides || [];
-    var nDishes = dishes.length;
-    // history bucketed by dish index for O(1) recency checks instead of a
-    // linear scan per (slot,candidate) pair
-    var lastSeenByDish = Object.create(null);
+  // Two steps:
+  // 1) A menu QUEUE: an endless sequence of dishes, generated purely from
+  //    the seed and the queue position. A dish can't come back until 14
+  //    positions later (1 meal on weekdays, 2 on weekends -> always 10+
+  //    days apart). Locks never touch this queue.
+  // 2) PLACEMENT: walk the calendar from a fixed anchor date; each free meal
+  //    takes the next queue item, each locked meal takes the lock and takes
+  //    NOTHING from the queue. So locking a meal pushes the menu that was
+  //    there to the next free meal and slides everything after it by one —
+  //    nothing is thrown away.
+  //    One extra rule while placing: if the next item is a dish you locked
+  //    within 10 days (before or after), it waits and the item behind it
+  //    goes first. That's a local swap, not a reshuffle.
+  // The anchor never moves, so the plan stays put as days pass; everything
+  // before today is simply not shown.
+  var REPEAT_GAP = 14;
+  var LOOKAHEAD = 10;
+  function generatePlan(st, today){
+    var dishes = uniqueDishes(st.dishes);
+    var nh = dishes.map(hash32);
+    var seed = st.seed || 1;
+    var anchor = st.anchorDate ? parseISO(st.anchorDate) : today;
+    var genStart = Math.min(anchor, today);
+    var monday = today - (isoWeekdayMon1(today) - 1);
+    var weeks = Math.max(1, Math.min(12, st.weeks || 4));
+    var end = monday + 7*weeks - 1;
+
+    var ovByKey = Object.create(null), ovEpochsByName = Object.create(null);
+    (st.overrides||[]).forEach(function(o){
+      if (!o || !o.date || !o.dish) return;
+      ovByKey[o.date + "|" + o.meal] = o;
+      var nm = String(o.dish).trim();
+      (ovEpochsByName[nm] = ovEpochsByName[nm] || []).push(parseISO(o.date));
+    });
+    function nearLock(name, e){
+      var arr = ovEpochsByName[name];
+      if (!arr) return false;
+      for (var q=0; q<arr.length; q++){ if (Math.abs(arr[q]-e) < 10) return true; }
+      return false;
+    }
+
+    // step 1: the queue
+    // A newly added dish only joins the queue from a later position (about
+    // two weeks out), so adding one doesn't reshuffle meals you've already
+    // seen for the next two weeks.
+    var join = st.dishJoin || {};
+    var qLastPos = Object.create(null), qj = 0;
+    function nextQueueItem(){
+      var best = -1, bestScore = Infinity;
+      for (var k=0; k<dishes.length; k++){
+        if ((join[dishes[k]] || 0) > qj) continue;
+        var lp = qLastPos[dishes[k]];
+        var blocked = (lp !== undefined && qj - lp < REPEAT_GAP);
+        // very short menu list: fall back to least-recently-used
+        var score = blocked ? 2 + (lp - (qj-REPEAT_GAP))/REPEAT_GAP : rand01(seed, qj, nh[k]);
+        if (score < bestScore){ bestScore = score; best = k; }
+      }
+      if (best === -1) best = 0; // every dish still waiting to join (edge case)
+      qLastPos[dishes[best]] = qj; qj++;
+      return dishes[best];
+    }
+
+    // step 2: placement
+    var buffer = [];
+    var lastPlaced = Object.create(null);
     var slots = [];
-    var totalDays = (state.weeks||1)*7;
-    for (var d=0; d<totalDays; d++){
-      var epoch = startEpoch + d;
-      var isWeekend = isoWeekdayMon1(epoch) >= 6;
-      var mealDefs = [
-        {meal:"lunch", active:isWeekend, slotIndex: d*2+1},
-        {meal:"dinner", active:true, slotIndex: d*2+2}
-      ];
-      for (var mi=0; mi<mealDefs.length; mi++){
-        var md = mealDefs[mi];
-        if (!md.active) continue;
-        var meal = md.meal, slotIndex = md.slotIndex;
-        var bestIdx = -1, bestScore = Infinity;
-        for (var k=1; k<=nDishes; k++){
-          var dishName = dishes[k-1];
-          var recentAuto = (lastSeenByDish[k] !== undefined) && (lastSeenByDish[k] > epoch-10);
-          var recentOverride = false;
-          if (!recentAuto){
-            for (var oi=0; oi<overrides.length; oi++){
-              var oEpoch = parseISO(overrides[oi].date);
-              if (overrides[oi].dish===dishName && oEpoch > epoch-10 && oEpoch <= epoch){ recentOverride=true; break; }
-            }
+    for (var e=genStart; e<=end; e++){
+      var iso = toISO(e);
+      var weekend = isoWeekdayMon1(e) >= 6;
+      var meals = [];
+      if (weekend || ovByKey[iso + "|lunch"]) meals.push("lunch"); // weekday lunch shows only if you locked one
+      meals.push("dinner");
+      for (var mi=0; mi<meals.length; mi++){
+        var meal = meals[mi];
+        var ov = ovByKey[iso + "|" + meal];
+        var final = "", isOv = false;
+        if (ov){
+          final = String(ov.dish).trim(); isOv = true;
+        } else if (dishes.length){
+          while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
+          var pick = 0;
+          for (var b=0; b<buffer.length; b++){
+            var cand = buffer[b];
+            var lp2 = lastPlaced[cand];
+            if (nearLock(cand, e)) continue;
+            if (lp2 !== undefined && e - lp2 < 10) continue;
+            pick = b; break;
           }
-          var score = (recentAuto||recentOverride) ? 1 : pseudoRandom(state.seed||1, slotIndex, k);
-          if (score < bestScore){ bestScore=score; bestIdx=k; }
+          final = buffer.splice(pick, 1)[0];
         }
-        if (bestIdx===-1) bestIdx = 1;
-        var autoDish = nDishes ? dishes[bestIdx-1] : "";
-        lastSeenByDish[bestIdx] = epoch;
-        var dateISO = toISO(epoch);
-        var ov = null;
-        for (var oj=0; oj<overrides.length; oj++){
-          if (overrides[oj].date===dateISO && overrides[oj].meal===meal){ ov = overrides[oj]; break; }
+        if (final) lastPlaced[final] = e;
+        if (e >= today){
+          slots.push({
+            epoch: e, dateISO: iso, weekIdx: Math.floor((e - monday)/7), meal: meal,
+            final: final, isOverride: isOv, isToday: e === today, q: qj
+          });
         }
-        slots.push({
-          epoch: epoch, dateISO: dateISO, weekIdx: Math.floor(d/7), meal: meal,
-          auto: autoDish, final: ov ? ov.dish : autoDish, isOverride: !!ov
-        });
       }
     }
     return slots;
+  }
+  // queue position that corresponds to ~2 weeks from today; a dish added
+  // now joins the rotation from there
+  function joinPosForNewDish(){
+    var tgt = todayEpochLocal() + 14;
+    var pl = generatePlan(Object.assign({}, state, {weeks: 12}), todayEpochLocal());
+    for (var i=0; i<pl.length; i++){ if (pl[i].epoch >= tgt) return pl[i].q; }
+    return pl.length ? pl[pl.length-1].q : 0;
+  }
+  function addDish(name){
+    state.dishes = uniqueDishes(state.dishes);
+    if (state.dishes.indexOf(name) !== -1) return false;
+    state.dishJoin = state.dishJoin || {};
+    state.dishJoin[name] = joinPosForNewDish();
+    state.dishes.push(name);
+    return true;
+  }
+  function weekLabel(i){
+    return i===0 ? "이번 주" : i===1 ? "다음 주" : i===2 ? "다다음 주" : (i + "주 뒤");
   }
 
   // ---------- app state ----------
@@ -552,12 +668,19 @@
   // per tap, most of them for tabs no one was looking at).
   var lastSlots = null;
   var tabDirty = {plan:true, shop:true, settings:true};
+  var currentToday = todayEpochLocal();
 
   function renderAll(){
-    lastSlots = generatePlan(state);
+    currentToday = todayEpochLocal();
+    lastSlots = generatePlan(state, currentToday);
     tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true;
     renderStatusBar();
     renderActiveTab();
+  }
+  function reshuffle(){
+    state.seed = 1 + Math.floor(Math.random()*9998);
+    scheduleSave(); renderAll();
+    showToast("새 조합으로 바꿨어요");
   }
   function renderActiveTab(){
     if (activeTab==="plan" && tabDirty.plan){ renderPlan(lastSlots); tabDirty.plan=false; }
@@ -571,14 +694,10 @@
     var ok = n >= 14;
     bar.innerHTML =
       '<span class="badge ' + (ok?"ok":"warn") + '">' + (ok?"✅ 요리 " + n + "개":"⚠ 요리 " + n + "개, 14개+ 추천") + '</span>' +
-      '<span>시작 <b>' + fmtKDate(state.startDate) + '</b> · <b>' + state.weeks + '주</b></span>' +
+      '<span>오늘 <b>' + dispDate(currentToday) + '</b>부터 · <b>' + state.weeks + '주</b></span>' +
       '<span class="spacer"></span>' +
-      '<button class="reshuffle" id="quickShuffle" type="button">🎲 시드 ' + state.seed + '</button>';
-    document.getElementById("quickShuffle").onclick = function(){
-      state.seed = 1 + Math.floor(Math.random()*9998);
-      scheduleSave(); renderAll();
-      showToast("새 조합으로 바꿨어요");
-    };
+      '<button class="reshuffle" id="quickShuffle" type="button">🎲 다른 조합</button>';
+    document.getElementById("quickShuffle").onclick = reshuffle;
   }
   function fmtKDate(iso){
     var e = parseISO(iso); var f = fromEpochDay(e);
@@ -597,17 +716,19 @@
     var html = "";
     Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
       var arr = byWeek[wk];
-      html += '<div class="week"><h2><b>' + (parseInt(wk,10)+1) + '주</b> · ' + dispDate(arr[0].epoch) + ' ~ ' + dispDate(arr[arr.length-1].epoch) + '</h2>';
+      html += '<div class="week"><h2><b>' + weekLabel(parseInt(wk,10)) + '</b> · ' + dispDate(arr[0].epoch) + ' ~ ' + dispDate(arr[arr.length-1].epoch) + '</h2>';
       var byDate = {};
       arr.forEach(function(s){ (byDate[s.dateISO]=byDate[s.dateISO]||[]).push(s); });
       Object.keys(byDate).forEach(function(dateISO){
         var daySlots = byDate[dateISO];
         var isWeekend = isoWeekdayMon1(daySlots[0].epoch) >= 6;
-        html += '<div class="daycard' + (isWeekend?" weekend":"") + '"><div class="daylabel">' + dispDate(daySlots[0].epoch) + '</div>';
+        var isToday = daySlots[0].isToday;
+        html += '<div class="daycard' + (isWeekend?" weekend":"") + (isToday?" today":"") + '"><div class="daylabel">' +
+          dispDate(daySlots[0].epoch) + (isToday ? ' <span class="today-pill">오늘</span>' : '') + '</div>';
         daySlots.forEach(function(s){
           html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
             '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
-            '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final || "미정") + '</span>' +
+            '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final ? esc(s.final) : "미정") + '</span>' +
             (s.isOverride ? '<span class="lock-pill">🔒 고정</span>' : '') +
             '<span class="chev">›</span></div>';
         });
@@ -630,11 +751,12 @@
     var html = "";
     Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
       var arr = byWeek[wk];
-      html += '<div class="shop-week"><h2>🛒 ' + (parseInt(wk,10)+1) + '주 장보기 — 그 주 시작 전에 준비하세요</h2>';
+      var wki = parseInt(wk,10);
+      html += '<div class="shop-week"><h2>🛒 ' + weekLabel(wki) + ' 장보기 — ' + (wki===0 ? '오늘부터 남은 끼니' : '그 주 시작 전에 준비하세요') + '</h2>';
       arr.forEach(function(s){
-        var ing = (state.ingredients && state.ingredients[s.final]) ? state.ingredients[s.final] : null;
-        html += '<div class="shop-row"><div class="meta"><b>' + dispDate(s.epoch) + '</b><span>' + MEAL_LABEL[s.meal] + '</span><span>' + (s.final||"미정") + '</span></div>' +
-          (ing ? '<div class="ing">' + ing.join(" · ") + '</div>' : '<div class="ing none">재료 미등록 (배달/편의점이거나 재료를 아직 안 넣은 메뉴예요)</div>') +
+        var ing = (state.ingredients && state.ingredients[s.final] && state.ingredients[s.final].length) ? state.ingredients[s.final] : null;
+        html += '<div class="shop-row"><div class="meta"><b>' + dispDate(s.epoch) + '</b><span>' + MEAL_LABEL[s.meal] + '</span><span>' + (s.final ? esc(s.final) : "미정") + '</span></div>' +
+          (ing ? '<div class="ing">' + ing.map(esc).join(" · ") + '</div>' : '<div class="ing none">재료 미등록 (배달/편의점이거나 재료를 아직 안 넣은 메뉴예요)</div>') +
           '</div>';
       });
       html += '</div>';
@@ -643,10 +765,7 @@
   }
 
   function renderSettings(){
-    document.getElementById("inStartHost").innerHTML = kdateHTML("inStart", state.startDate);
-    kdateWire("inStart", function(iso){ state.startDate = iso; scheduleSave(); renderAll(); });
     document.getElementById("inWeeks").value = state.weeks;
-    document.getElementById("inSeed").value = state.seed;
 
     var dishHost = document.getElementById("dishList");
     var dishes = state.dishes||[];
@@ -656,7 +775,7 @@
       var open = (expandedDish === idx);
       html += '<div class="dish-card">' +
         '<div class="dish-head" data-idx="' + idx + '">' +
-          '<span class="name">' + name + '</span>' +
+          '<span class="name">' + esc(name) + '</span>' +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
         '</div>';
@@ -664,7 +783,7 @@
         html += '<div class="dish-body">' +
           '<div class="chip-row">' +
           (ing.length ? ing.map(function(item, ii){
-            return '<span class="chip">' + item + '<button data-ding="' + idx + '" data-dii="' + ii + '">✕</button></span>';
+            return '<span class="chip">' + esc(item) + '<button data-ding="' + idx + '" data-dii="' + ii + '">✕</button></span>';
           }).join("") : '<span class="hint">아직 재료가 없어요</span>') +
           '</div>' +
           '<div class="inline-add">' +
@@ -692,6 +811,7 @@
         var name = state.dishes[idx];
         if (!confirm('"' + name + '"을(를) 요리 목록에서 삭제할까요?')) return;
         state.dishes.splice(idx,1);
+        if (state.dishJoin) delete state.dishJoin[name];
         expandedDish = null;
         scheduleSave(); renderAll();
       };
@@ -719,12 +839,17 @@
       };
     });
 
+    // past locks stay in the data (they keep the queue order stable) but
+    // aren't shown — only today and later matter here
     var ovHost = document.getElementById("overrideList");
-    var overrides = state.overrides||[];
+    var todayISO = toISO(currentToday);
+    var overrides = (state.overrides||[]).filter(function(o){ return o && o.date >= todayISO; });
     document.getElementById("overrideEmpty").hidden = overrides.length>0;
-    ovHost.innerHTML = overrides.slice().sort(function(a,b){return a.date<b.date?-1:1;}).map(function(o){
-      return '<div class="override-row"><div class="info"><b>' + fmtKDate(o.date) + '</b> <span>' + MEAL_LABEL[o.meal] + ' · ' + o.dish + '</span></div>' +
-        '<button class="btn danger" data-unlock="' + o.id + '">해제</button></div>';
+    ovHost.innerHTML = overrides.slice().sort(function(a,b){
+      return a.date!==b.date ? (a.date<b.date?-1:1) : (a.meal==="lunch"?-1:1);
+    }).map(function(o){
+      return '<div class="override-row"><div class="info"><b>' + dispDate(parseISO(o.date)) + '</b> <span>' + MEAL_LABEL[o.meal] + ' · ' + esc(o.dish) + '</span></div>' +
+        '<button class="btn danger" data-unlock="' + esc(o.id) + '">해제</button></div>';
     }).join("");
     Array.prototype.forEach.call(ovHost.querySelectorAll("[data-unlock]"), function(btn){
       btn.onclick = function(){
@@ -739,7 +864,7 @@
   function openLockSheet(dateISO, meal){
     var host = document.getElementById("sheetHost");
     var existing = (state.overrides||[]).find(function(o){return o.date===dateISO && o.meal===meal;});
-    var dishOptions = (state.dishes||[]).slice().filter(function(v,i,a){return a.indexOf(v)===i;});
+    var dishOptions = uniqueDishes(state.dishes);
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
     overlay.innerHTML =
@@ -751,10 +876,11 @@
           '<button type="button" data-meal="dinner" class="' + (meal==="dinner"?"on":"") + '">저녁</button>' +
         '</div></div>' +
         '<div class="field"><label>메뉴</label>' +
-          '<input type="text" id="lkDish" list="dishOptionsList" placeholder="예: 치킨" value="' + (existing? existing.dish : "") + '">' +
-          '<datalist id="dishOptionsList">' + dishOptions.map(function(d){return '<option value="'+d+'">';}).join("") + '</datalist>' +
+          '<input type="text" id="lkDish" list="dishOptionsList" placeholder="예: 치킨" value="' + (existing? esc(existing.dish) : "") + '">' +
+          '<datalist id="dishOptionsList">' + dishOptions.map(function(d){return '<option value="'+esc(d)+'">';}).join("") + '</datalist>' +
         '</div>' +
-        '<p class="hint">고정한 메뉴는 이후 10일 동안 자동배정에서 제외돼요.</p>' +
+        '<p class="hint">원래 이 자리에 있던 메뉴는 다음 끼니로 밀려요(없어지지 않아요). 처음 적는 메뉴는 요리 목록에 저장돼서 2주 뒤 식단부터 자동으로도 섞여 나와요.</p>' +
+        '<p class="hint">고정한 메뉴는 앞뒤 10일 동안 자동배정에서 빠져요.</p>' +
         '<div class="actions">' +
           (existing ? '<button class="btn danger" id="lkRemove">고정 해제</button>' : '') +
           '<button class="btn" id="lkCancel">취소</button>' +
@@ -790,9 +916,11 @@
       var idx = state.overrides.findIndex(function(o){return o.date===d && o.meal===curMeal;});
       var rec = {id: existing? existing.id : ("ov"+Date.now()), date:d, meal:curMeal, dish:dish};
       if (idx>=0) state.overrides[idx]=rec; else state.overrides.push(rec);
+      // remember new menus: anything typed here joins the dish list for good
+      var added = addDish(dish);
       host.innerHTML = "";
       scheduleSave(); renderAll();
-      showToast("메뉴를 고정했어요 🔒");
+      showToast(added ? ('고정했어요 🔒 "' + dish + '"는 메뉴 목록에도 저장했어요') : "메뉴를 고정했어요 🔒");
     };
   }
 
@@ -810,32 +938,23 @@
   });
   document.getElementById("fabLock").hidden = false;
   document.getElementById("fabLock").onclick = function(){
-    var today = toISO(Math.floor(Date.now()/86400000));
-    openLockSheet(state.startDate < today ? state.startDate : today, "dinner");
+    openLockSheet(toISO(todayEpochLocal()), "dinner");
   };
 
   // settings field wiring
-  // (시작일 field is wired in renderSettings() via kdateWire, since it's rebuilt on every render)
   document.getElementById("inWeeks").onchange = function(e){
     var v = Math.max(1, Math.min(12, parseInt(e.target.value,10)||1));
     state.weeks = v; scheduleSave(); renderAll();
   };
-  document.getElementById("inSeed").onchange = function(e){
-    state.seed = parseInt(e.target.value,10) || 1; scheduleSave(); renderAll();
-  };
-  document.getElementById("btnShuffle").onclick = function(){
-    state.seed = 1 + Math.floor(Math.random()*9998);
-    scheduleSave(); renderAll();
-    showToast("새 조합으로 바꿨어요");
-  };
+  document.getElementById("btnShuffle").onclick = reshuffle;
   document.getElementById("btnAddDish").onclick = function(){
     var input = document.getElementById("inNewDish");
     var v = input.value.trim();
     if (!v) return;
-    state.dishes = state.dishes||[];
-    state.dishes.push(v);
     input.value = "";
+    if (!addDish(v)){ showToast("이미 목록에 있는 요리예요"); return; }
     scheduleSave(); renderAll();
+    showToast('"' + v + '" 추가! 2주 뒤 식단부터 섞여 나와요');
   };
 
   // ---------- persistence: localStorage always, Firebase sync if configured ----------
@@ -889,8 +1008,18 @@
 
   function boot(){
     var saved = loadLocal();
-    if (saved) state = saved;
+    if (saved){
+      var neededMigration = needsMigration(saved);
+      state = migrate(saved);
+      if (neededMigration) saveLocal();
+    }
     renderAll();
+    // the plan is date-based, so redraw when the day rolls over while the
+    // app is open, or when it's brought back from the background
+    setInterval(function(){ if (todayEpochLocal() !== currentToday) renderAll(); }, 60000);
+    document.addEventListener("visibilitychange", function(){
+      if (!document.hidden && todayEpochLocal() !== currentToday) renderAll();
+    });
     if (!storageOK) showConnNote("⚠ 이 브라우저에서는 저장이 안 돼요(시크릿 모드 등). 보기는 되지만 새로고침하면 바뀐 내용이 사라져요.");
     if (syncEnabled) initSync();
   }
@@ -943,10 +1072,14 @@
             if (data && data.dishes){
               var incomingRev = data._rev || 0;
               if (incomingRev < localRev) return; // stale vs. a newer unsaved local edit
-              state = data;
+              var incomingNeedsMigration = needsMigration(data);
+              state = migrate(data);
               localRev = incomingRev;
               saveLocal();
               renderAll();
+              // first device on the new version upgrades the shared copy
+              // (deterministic, so two phones doing it at once agree)
+              if (incomingNeedsMigration) scheduleSave();
               return;
             }
           }
