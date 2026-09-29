@@ -374,6 +374,17 @@
     <div class="settings-block">
       <h3>기본 설정</h3>
       <div class="field-row"><label>보여줄 주</label><input type="number" id="inWeeks" min="1" max="12"></div>
+      <div class="field-row"><label>닭 요리</label>
+        <div class="kdate"><select id="inChickenGap">
+          <option value="0">제한 없음</option>
+          <option value="2">2일에 한 번</option>
+          <option value="3">3일에 한 번</option>
+          <option value="4">4일에 한 번</option>
+          <option value="5">5일에 한 번</option>
+          <option value="7">일주일에 한 번</option>
+        </select></div>
+      </div>
+      <p class="hint" id="chickenHint" style="margin-bottom:12px;"></p>
       <p class="hint" style="margin-bottom:12px;">식단표는 항상 오늘 날짜부터 자동으로 보여줘요. 지난 날짜는 알아서 사라져요.</p>
       <button class="btn block" id="btnShuffle" type="button">🎲 다른 조합으로 바꾸기</button>
       <button class="btn block" id="btnUndoShuffle" type="button" style="margin-top:8px;" hidden>↩ 이전 조합으로 되돌리기</button>
@@ -681,6 +692,15 @@
   // end of the "weeks" setting).
   var REPEAT_GAP = 14;
   var LOOKAHEAD = 10;
+  // A dish counts as chicken if its name says so, or its main (first)
+  // ingredient is chicken.
+  var CHICKEN_RE = /닭|치킨/;
+  function isChicken(st, name){
+    if (CHICKEN_RE.test(name)) return true;
+    var ing = (st.ingredients || {})[name];
+    return !!(ing && ing.length && /닭/.test(ing[0]));
+  }
+  function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
     var dishes = uniqueDishes(st.dishes);
@@ -705,6 +725,20 @@
       var arr = ovEpochsByName[name];
       if (!arr) return false;
       for (var q=0; q<arr.length; q++){ if (Math.abs(arr[q]-e) < 10) return true; }
+      return false;
+    }
+    // chicken spacing: an auto chicken dish needs chickenGap days since the
+    // last chicken meal, and can't land within that range of a locked one
+    var chickenGap = chickenGapOf(st);
+    var chickenLocks = [];
+    (st.overrides||[]).forEach(function(o){
+      if (o && o.date && o.dish && isChicken(st, String(o.dish).trim())) chickenLocks.push(parseISO(o.date));
+    });
+    var lastChicken = null;
+    function chickenTooSoon(name, e){
+      if (chickenGap < 2 || !isChicken(st, name)) return false;
+      if (lastChicken !== null && e - lastChicken < chickenGap) return true;
+      for (var q=0; q<chickenLocks.length; q++){ if (chickenLocks[q] !== e && Math.abs(chickenLocks[q]-e) < chickenGap) return true; }
       return false;
     }
 
@@ -752,17 +786,21 @@
           final = String(ov.dish).trim(); isOv = true;
         } else if (fromQueue && dishes.length){
           while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
-          var pick = 0;
+          var pick = -1, fallback = -1;
           for (var b=0; b<buffer.length; b++){
             var cand = buffer[b];
             var lp2 = lastPlaced[cand];
+            if (chickenTooSoon(cand, e)) continue;
+            if (fallback === -1) fallback = b;
             if (nearLock(cand, e)) continue;
             if (lp2 !== undefined && e - lp2 < 10) continue;
             pick = b; break;
           }
+          if (pick === -1) pick = fallback !== -1 ? fallback : 0;
           final = buffer.splice(pick, 1)[0];
         }
         if (final) lastPlaced[final] = e;
+        if (final && isChicken(st, final)) lastChicken = e;
         if (past && !isOv && hist[iso + "|" + meal] != null) final = hist[iso + "|" + meal];
         if (e >= from){
           slots.push({
@@ -1145,6 +1183,10 @@
 
   function renderSettings(){
     document.getElementById("inWeeks").value = state.weeks;
+    document.getElementById("inChickenGap").value = String(chickenGapOf(state));
+    var chickens = (state.dishes||[]).filter(function(n){ return isChicken(state, n); });
+    document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
+      ". 자동배정에서만 간격을 지키고, 직접 고정한 메뉴는 그대로 둬요.";
 
     var dishHost = document.getElementById("dishList");
     var dishes = state.dishes||[];
@@ -1333,6 +1375,11 @@
   };
 
   // settings field wiring
+  document.getElementById("inChickenGap").onchange = function(e){
+    state.chickenGap = parseInt(e.target.value,10) || 0;
+    scheduleSave(); renderAll();
+    showToast(state.chickenGap ? ("닭 요리는 " + state.chickenGap + "일에 한 번만 나와요") : "닭 요리 간격 제한을 껐어요");
+  };
   document.getElementById("inWeeks").onchange = function(e){
     var v = Math.max(1, Math.min(12, parseInt(e.target.value,10)||1));
     state.weeks = v; scheduleSave(); renderAll();
