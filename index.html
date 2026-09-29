@@ -286,6 +286,56 @@
     font-size:11.5px;color:var(--warn-ink);background:var(--warn-bg);
     border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:14px;
   }
+
+  .view-seg{
+    display:flex;gap:4px;background:var(--surface);border:1px solid var(--surface-border);
+    border-radius:999px;padding:4px;margin-bottom:12px;
+  }
+  .view-seg button{
+    flex:1;border:none;background:transparent;color:var(--ink-dim);font-size:13px;font-weight:600;
+    padding:7px 4px;border-radius:999px;cursor:pointer;
+  }
+  .view-seg button.on{background:var(--accent2);color:var(--accent2-ink);}
+  .period-nav{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+  .period-nav[hidden]{display:none;}
+  .period-nav .nav-btn{
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);
+    border-radius:999px;width:38px;height:38px;font-size:15px;cursor:pointer;flex:none;
+  }
+  .period-nav .title{flex:1;text-align:center;font-size:12.5px;color:var(--ink-dim);}
+  .period-nav .title b{display:block;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-weight:400;font-size:18px;color:var(--ink);}
+  .period-nav .today-btn{
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--accent);
+    border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;
+  }
+  .daycard.past{opacity:.62;}
+
+  .mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;}
+  .mhead{text-align:center;font-size:11.5px;color:var(--ink-faint);font-weight:600;padding:4px 0;}
+  .mcell{
+    min-height:66px;border:1px solid var(--surface-border);border-radius:8px;
+    padding:3px 3px 4px;cursor:pointer;background:var(--bg);overflow:hidden;
+  }
+  .mcell.out{visibility:hidden;}
+  .mcell.weekend{background:var(--weekend);}
+  .mcell.today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);}
+  .mcell.past{opacity:.6;}
+  .mday{font-size:11px;font-weight:700;color:var(--ink-dim);}
+  .mcell.today .mday{color:var(--accent);}
+  .mm{
+    font-size:10.5px;line-height:1.25;margin-top:2px;word-break:keep-all;overflow-wrap:anywhere;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .mm.lunch{color:var(--ink-dim);}
+  .mm.locked{color:var(--accent);font-weight:600;}
+  .mm.empty{color:var(--ink-faint);}
+
+  .shop-row{cursor:pointer;}
+  .shop-row:active{background:var(--surface2);}
+  .shop-row .edit{margin-left:auto;color:var(--ink-faint);font-size:11.5px;}
+  .check{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:2px 0 10px;cursor:pointer;}
+  .check[hidden]{display:none;}
+  .check input{width:18px;height:18px;accent-color:var(--accent);flex:none;}
 </style>
 </head>
 <body>
@@ -307,6 +357,12 @@
 
   <section id="tab-plan">
     <div class="status-bar" id="statusBar"></div>
+    <div class="view-seg" id="viewSeg">
+      <button type="button" data-view="list">다가오는 식단</button>
+      <button type="button" data-view="week">주별</button>
+      <button type="button" data-view="month">월별</button>
+    </div>
+    <div class="period-nav" id="periodNav" hidden></div>
     <div id="planList"></div>
   </section>
 
@@ -596,6 +652,7 @@
     s.overrides = s.overrides || [];
     s.ingredients = s.ingredients || {};
     s.dishJoin = s.dishJoin || {};
+    s.history = s.history || {};
     fillMissingIngredients(s);
     return s;
   }
@@ -614,11 +671,17 @@
   //    One extra rule while placing: if the next item is a dish you locked
   //    within 10 days (before or after), it waits and the item behind it
   //    goes first. That's a local swap, not a reshuffle.
-  // The anchor never moves, so the plan stays put as days pass; everything
-  // before today is simply not shown.
+  // The anchor never moves, so the plan stays put as days pass.
+  // Past days show what was actually on the plan back then: each finished
+  // day is frozen into state.history (see freezeHistory), so a later
+  // reshuffle or menu change doesn't rewrite the past. History is display
+  // only; placement always runs on the queue, so it never shifts the future.
+  // opts.from / opts.to pick the epoch range returned (default: today to the
+  // end of the "weeks" setting).
   var REPEAT_GAP = 14;
   var LOOKAHEAD = 10;
-  function generatePlan(st, today){
+  function generatePlan(st, today, opts){
+    opts = opts || {};
     var dishes = uniqueDishes(st.dishes);
     var nh = dishes.map(hash32);
     var seed = st.seed || 1;
@@ -626,7 +689,9 @@
     var genStart = Math.min(anchor, today);
     var monday = today - (isoWeekdayMon1(today) - 1);
     var weeks = Math.max(1, Math.min(12, st.weeks || 4));
-    var end = monday + 7*weeks - 1;
+    var from = opts.from != null ? opts.from : today;
+    var end = opts.to != null ? opts.to : monday + 7*weeks - 1;
+    var hist = st.history || {};
 
     var ovByKey = Object.create(null), ovEpochsByName = Object.create(null);
     (st.overrides||[]).forEach(function(o){
@@ -667,19 +732,24 @@
     var buffer = [];
     var lastPlaced = Object.create(null);
     var slots = [];
-    for (var e=genStart; e<=end; e++){
+    for (var e=Math.min(genStart, from); e<=end; e++){
       var iso = toISO(e);
       var weekend = isoWeekdayMon1(e) >= 6;
+      var past = e < today;
+      var planned = e >= genStart; // days before the anchor were never planned
       var meals = [];
-      if (weekend || ovByKey[iso + "|lunch"]) meals.push("lunch"); // weekday lunch shows only if you locked one
+      // weekday lunch shows only if you locked one (or one was recorded)
+      var lunchOnlyFromHistory = !weekend && !ovByKey[iso + "|lunch"] && past && !!hist[iso + "|lunch"];
+      if (weekend || ovByKey[iso + "|lunch"] || lunchOnlyFromHistory) meals.push("lunch");
       meals.push("dinner");
       for (var mi=0; mi<meals.length; mi++){
         var meal = meals[mi];
         var ov = ovByKey[iso + "|" + meal];
         var final = "", isOv = false;
+        var fromQueue = planned && !(meal === "lunch" && lunchOnlyFromHistory);
         if (ov){
           final = String(ov.dish).trim(); isOv = true;
-        } else if (dishes.length){
+        } else if (fromQueue && dishes.length){
           while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
           var pick = 0;
           for (var b=0; b<buffer.length; b++){
@@ -692,10 +762,11 @@
           final = buffer.splice(pick, 1)[0];
         }
         if (final) lastPlaced[final] = e;
-        if (e >= today){
+        if (past && !isOv && hist[iso + "|" + meal] != null) final = hist[iso + "|" + meal];
+        if (e >= from){
           slots.push({
             epoch: e, dateISO: iso, weekIdx: Math.floor((e - monday)/7), meal: meal,
-            final: final, isOverride: isOv, isToday: e === today, q: qj
+            final: final, isOverride: isOv, isToday: e === today, isPast: past, q: qj
           });
         }
       }
@@ -720,7 +791,24 @@
     return true;
   }
   function weekLabel(i){
+    if (i < 0) return i === -1 ? "지난 주" : (-i + "주 전");
     return i===0 ? "이번 주" : i===1 ? "다음 주" : i===2 ? "다다음 주" : (i + "주 뒤");
+  }
+  // Freeze every finished day (anchor .. yesterday) into state.history the
+  // first time it's seen as past. Deterministic, so two phones agree.
+  // Returns true if anything was added.
+  function freezeHistory(today){
+    var anchor = state.anchorDate ? parseISO(state.anchorDate) : today;
+    var yesterday = today - 1;
+    if (anchor > yesterday) return false;
+    state.history = state.history || {};
+    if (state.history[toISO(yesterday) + "|dinner"] != null) return false;
+    var changed = false;
+    generatePlan(state, today, {from: anchor, to: yesterday}).forEach(function(s){
+      var key = s.dateISO + "|" + s.meal;
+      if (s.final && state.history[key] == null){ state.history[key] = s.final; changed = true; }
+    });
+    return changed;
   }
 
   // ---------- app state ----------
@@ -753,6 +841,11 @@
 
   function renderAll(){
     currentToday = todayEpochLocal();
+    if (freezeHistory(currentToday)){
+      // before sync is connected, keep it local (like a migration) so it
+      // can't outrank the shared copy that's about to arrive
+      if (fsDoc) scheduleSave(); else saveLocal();
+    }
     lastSlots = generatePlan(state, currentToday);
     tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true;
     renderStatusBar();
@@ -764,7 +857,7 @@
     showToast("새 조합으로 바꿨어요");
   }
   function renderActiveTab(){
-    if (activeTab==="plan" && tabDirty.plan){ renderPlan(lastSlots); tabDirty.plan=false; }
+    if (activeTab==="plan" && tabDirty.plan){ renderPlanTab(); tabDirty.plan=false; }
     else if (activeTab==="shop" && tabDirty.shop){ renderShop(lastSlots); tabDirty.shop=false; }
     else if (activeTab==="settings" && tabDirty.settings){ renderSettings(); tabDirty.settings=false; }
   }
@@ -785,43 +878,151 @@
     return f.m + "월 " + f.d + "일";
   }
 
-  function renderPlan(slots){
+  // ---------- plan tab: 다가오는 식단 / 주별 / 월별 ----------
+  var VIEW_KEY = "mealplan_view";
+  var viewMode = "list", weekOffset = 0, monthOffset = 0;
+  try{ viewMode = localStorage.getItem(VIEW_KEY) || "list"; }catch(e){}
+  if (["list","week","month"].indexOf(viewMode) === -1) viewMode = "list";
+
+  function groupByDate(slots){
+    var order = [], byDate = {};
+    slots.forEach(function(s){
+      if (!byDate[s.dateISO]){ byDate[s.dateISO] = []; order.push(s.dateISO); }
+      byDate[s.dateISO].push(s);
+    });
+    return order.map(function(d){ return byDate[d]; });
+  }
+  function dayCardsHTML(slots){
+    return groupByDate(slots).map(function(daySlots){
+      var s0 = daySlots[0];
+      var isWeekend = isoWeekdayMon1(s0.epoch) >= 6;
+      var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
+        dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') + '</div>';
+      daySlots.forEach(function(s){
+        html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
+          '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
+          '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final ? esc(s.final) : (s.isPast ? "기록 없음" : "미정")) + '</span>' +
+          (s.isOverride ? '<span class="lock-pill">🔒 고정</span>' : '') +
+          '<span class="chev">›</span></div>';
+      });
+      return html + '</div>';
+    }).join("");
+  }
+  function wireMealRows(host){
+    Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
+      row.onclick = function(){ openLockSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+    });
+  }
+
+  function renderPlanTab(){
+    Array.prototype.forEach.call(document.querySelectorAll("#viewSeg button"), function(b){
+      b.classList.toggle("on", b.getAttribute("data-view") === viewMode);
+    });
     var host = document.getElementById("planList");
-    var dishes = state.dishes||[];
-    if (!dishes.length){
+    var nav = document.getElementById("periodNav");
+    if (!(state.dishes||[]).length){
+      nav.hidden = true;
       host.innerHTML = '<p class="empty-note">설정 탭에서 요리를 먼저 추가해주세요.</p>';
       return;
     }
+    if (viewMode === "week") renderWeekView(host, nav);
+    else if (viewMode === "month") renderMonthView(host, nav);
+    else { nav.hidden = true; renderPlan(host, lastSlots); }
+  }
+
+  function renderPlan(host, slots){
     var byWeek = {};
     slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
     var html = "";
     Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
       var arr = byWeek[wk];
-      html += '<div class="week"><h2><b>' + weekLabel(parseInt(wk,10)) + '</b> · ' + dispDate(arr[0].epoch) + ' ~ ' + dispDate(arr[arr.length-1].epoch) + '</h2>';
-      var byDate = {};
-      arr.forEach(function(s){ (byDate[s.dateISO]=byDate[s.dateISO]||[]).push(s); });
-      Object.keys(byDate).forEach(function(dateISO){
-        var daySlots = byDate[dateISO];
-        var isWeekend = isoWeekdayMon1(daySlots[0].epoch) >= 6;
-        var isToday = daySlots[0].isToday;
-        html += '<div class="daycard' + (isWeekend?" weekend":"") + (isToday?" today":"") + '"><div class="daylabel">' +
-          dispDate(daySlots[0].epoch) + (isToday ? ' <span class="today-pill">오늘</span>' : '') + '</div>';
-        daySlots.forEach(function(s){
-          html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
-            '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
-            '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final ? esc(s.final) : "미정") + '</span>' +
-            (s.isOverride ? '<span class="lock-pill">🔒 고정</span>' : '') +
-            '<span class="chev">›</span></div>';
-        });
-        html += '</div>';
-      });
-      html += '</div>';
+      html += '<div class="week"><h2><b>' + weekLabel(parseInt(wk,10)) + '</b> · ' + dispDate(arr[0].epoch) + ' ~ ' + dispDate(arr[arr.length-1].epoch) + '</h2>' +
+        dayCardsHTML(arr) + '</div>';
     });
     host.innerHTML = html;
-    Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
-      row.onclick = function(){ openLockSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+    wireMealRows(host);
+  }
+
+  function periodNavHTML(title, sub, showToday, todayText){
+    return '<button class="nav-btn" type="button" data-nav="-1" aria-label="이전">◀</button>' +
+      '<div class="title"><b>' + title + '</b>' + sub +
+        (showToday ? '<br><button class="today-btn" type="button" data-nav="0">' + todayText + '</button>' : '') +
+      '</div>' +
+      '<button class="nav-btn" type="button" data-nav="1" aria-label="다음">▶</button>';
+  }
+  function wirePeriodNav(nav, onMove){
+    Array.prototype.forEach.call(nav.querySelectorAll("[data-nav]"), function(b){
+      b.onclick = function(){ onMove(parseInt(b.getAttribute("data-nav"),10)); renderPlanTab(); };
     });
   }
+
+  function renderWeekView(host, nav){
+    var today = currentToday;
+    var monday = today - (isoWeekdayMon1(today) - 1) + 7*weekOffset;
+    var slots = generatePlan(state, today, {from: monday, to: monday + 6});
+    nav.hidden = false;
+    nav.innerHTML = periodNavHTML(weekLabel(weekOffset), dispDate(monday) + ' ~ ' + dispDate(monday + 6), weekOffset !== 0, "이번 주로");
+    wirePeriodNav(nav, function(d){ weekOffset = d === 0 ? 0 : weekOffset + d; });
+    host.innerHTML = dayCardsHTML(slots);
+    wireMealRows(host);
+  }
+
+  function renderMonthView(host, nav){
+    var today = currentToday;
+    var t = fromEpochDay(today);
+    var mIdx = t.y*12 + (t.m-1) + monthOffset;
+    var y = Math.floor(mIdx/12), m = mIdx%12 + 1;
+    var first = toEpochDay(y, m, 1), last = toEpochDay(y, m, daysInMonth(y, m));
+    var gridStart = first - (isoWeekdayMon1(first) - 1);
+    var gridEnd = last + (7 - isoWeekdayMon1(last));
+    var byDate = {};
+    generatePlan(state, today, {from: first, to: last}).forEach(function(s){
+      (byDate[s.dateISO] = byDate[s.dateISO] || []).push(s);
+    });
+    nav.hidden = false;
+    nav.innerHTML = periodNavHTML(y + "년 " + m + "월", "", monthOffset !== 0, "이번 달로");
+    wirePeriodNav(nav, function(d){ monthOffset = d === 0 ? 0 : monthOffset + d; });
+
+    var html = '<div class="mgrid">' + ["월","화","수","목","금","토","일"].map(function(w){ return '<div class="mhead">' + w + '</div>'; }).join("");
+    for (var e=gridStart; e<=gridEnd; e++){
+      if (e < first || e > last){ html += '<div class="mcell out"></div>'; continue; }
+      var iso = toISO(e);
+      var cls = "mcell" + (isoWeekdayMon1(e) >= 6 ? " weekend" : "") + (e === today ? " today" : "") + (e < today ? " past" : "");
+      html += '<div class="' + cls + '" data-epoch="' + e + '"><div class="mday">' + fromEpochDay(e).d + '</div>';
+      (byDate[iso] || []).forEach(function(s){
+        if (s.isPast && !s.final) return; // nothing recorded for that day
+        var c = "mm" + (s.meal === "lunch" ? " lunch" : "") + (s.isOverride ? " locked" : "") + (s.final ? "" : " empty");
+        var text = s.final ? esc(s.final) : (s.isPast ? "-" : "미정");
+        html += '<div class="' + c + '">' + (s.meal === "lunch" ? "점·" : "") + text + '</div>';
+      });
+      html += '</div>';
+    }
+    host.innerHTML = html + '</div><p class="hint" style="margin-top:8px;">날짜를 누르면 그 주 식단을 자세히 볼 수 있어요. "점·"은 점심이에요.</p>';
+    Array.prototype.forEach.call(host.querySelectorAll(".mcell[data-epoch]"), function(cell){
+      cell.onclick = function(){
+        var e = parseInt(cell.getAttribute("data-epoch"),10);
+        var thisMonday = today - (isoWeekdayMon1(today) - 1);
+        var cellMonday = e - (isoWeekdayMon1(e) - 1);
+        weekOffset = Math.round((cellMonday - thisMonday)/7);
+        setViewMode("week");
+      };
+    });
+  }
+
+  function setViewMode(v){
+    viewMode = v;
+    try{ localStorage.setItem(VIEW_KEY, v); }catch(e){}
+    renderPlanTab();
+    window.scrollTo(0, 0);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("#viewSeg button"), function(b){
+    b.onclick = function(){
+      var v = b.getAttribute("data-view");
+      if (v === "week") weekOffset = 0;
+      if (v === "month") monthOffset = 0;
+      setViewMode(v);
+    };
+  });
 
   function renderShop(slots){
     var host = document.getElementById("shopList");
@@ -836,13 +1037,90 @@
       html += '<div class="shop-week"><h2>🛒 ' + weekLabel(wki) + ' 장보기 — ' + (wki===0 ? '오늘부터 남은 끼니' : '그 주 시작 전에 준비하세요') + '</h2>';
       arr.forEach(function(s){
         var ing = (state.ingredients && state.ingredients[s.final] && state.ingredients[s.final].length) ? state.ingredients[s.final] : null;
-        html += '<div class="shop-row"><div class="meta"><b>' + dispDate(s.epoch) + '</b><span>' + MEAL_LABEL[s.meal] + '</span><span>' + (s.final ? esc(s.final) : "미정") + '</span></div>' +
-          (ing ? '<div class="ing">' + ing.map(esc).join(" · ") + '</div>' : '<div class="ing none">재료 미등록 (배달/편의점이거나 재료를 아직 안 넣은 메뉴예요)</div>') +
+        html += '<div class="shop-row" data-dish="' + esc(s.final) + '"><div class="meta"><b>' + dispDate(s.epoch) + '</b><span>' + MEAL_LABEL[s.meal] + '</span><span>' + (s.final ? esc(s.final) : "미정") + '</span>' +
+            (s.final ? '<span class="edit">✏️ 재료 편집</span>' : '') + '</div>' +
+          (ing ? '<div class="ing">' + ing.map(esc).join(" · ") + '</div>' : '<div class="ing none">재료 미등록 · 눌러서 직접 넣을 수 있어요</div>') +
           '</div>';
       });
       html += '</div>';
     });
     host.innerHTML = html;
+    Array.prototype.forEach.call(host.querySelectorAll(".shop-row"), function(row){
+      row.onclick = function(){
+        var name = row.getAttribute("data-dish");
+        if (name) openIngredientSheet(name);
+      };
+    });
+  }
+
+  // ---------- ingredient editor sheet ----------
+  // Split "대파 1대, 양파 1개" (or one per line) into separate items.
+  function splitIngredients(text){
+    return String(text||"").split(/[,\n]/).map(function(x){ return x.trim(); }).filter(Boolean);
+  }
+  function addIngredients(name, text){
+    var items = splitIngredients(text);
+    if (!items.length) return 0;
+    state.ingredients = state.ingredients || {};
+    state.ingredients[name] = (state.ingredients[name] || []).concat(items);
+    state.recipeFilled = state.recipeFilled || {};
+    state.recipeFilled[name] = true; // you've edited it: never auto-fill over it
+    return items.length;
+  }
+  function removeIngredient(name, i){
+    state.ingredients[name].splice(i, 1);
+    state.recipeFilled = state.recipeFilled || {};
+    state.recipeFilled[name] = true;
+  }
+  function openIngredientSheet(name){
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    function draw(){
+      var ing = (state.ingredients && state.ingredients[name]) || [];
+      var book = !ing.length && recipeFor(name);
+      overlay.innerHTML =
+        '<div class="sheet">' +
+          '<h3>🥕 ' + esc(name) + ' 재료 (2인 기준)</h3>' +
+          '<div class="chip-row">' +
+            (ing.length ? ing.map(function(item, i){
+              return '<span class="chip">' + esc(item) + '<button type="button" data-rm="' + i + '">✕</button></span>';
+            }).join("") : '<span class="hint">아직 재료가 없어요</span>') +
+          '</div>' +
+          (book ? '<button class="btn block" type="button" id="igBook" style="margin-bottom:10px;">📖 기본 재료 불러오기</button>' : '') +
+          '<div class="inline-add">' +
+            '<input type="text" id="igInput" placeholder="예: 대파 1대, 양파 1개">' +
+            '<button class="btn primary" type="button" id="igAdd">추가</button>' +
+          '</div>' +
+          '<p class="hint" style="margin-top:6px;">쉼표(,)로 구분하면 여러 개를 한 번에 넣을 수 있어요. 장보기 리스트에 바로 반영돼요.</p>' +
+          '<div class="actions"><button class="btn" type="button" id="igClose">닫기</button></div>' +
+        '</div>';
+      var input = overlay.querySelector("#igInput");
+      function add(){
+        if (!addIngredients(name, input.value)) return;
+        scheduleSave(); renderAll(); draw();
+        overlay.querySelector("#igInput").focus();
+      }
+      overlay.querySelector("#igAdd").onclick = add;
+      input.onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); add(); } };
+      overlay.querySelector("#igClose").onclick = function(){ host.innerHTML = ""; };
+      if (book){
+        overlay.querySelector("#igBook").onclick = function(){
+          addIngredients(name, book.join(","));
+          scheduleSave(); renderAll(); draw();
+        };
+      }
+      Array.prototype.forEach.call(overlay.querySelectorAll("[data-rm]"), function(b){
+        b.onclick = function(){
+          removeIngredient(name, parseInt(b.getAttribute("data-rm"),10));
+          scheduleSave(); renderAll(); draw();
+        };
+      });
+    }
+    overlay.onclick = function(e){ if (e.target === overlay) host.innerHTML = ""; };
+    host.innerHTML = "";
+    host.appendChild(overlay);
+    draw();
   }
 
   function renderSettings(){
@@ -868,7 +1146,7 @@
           }).join("") : '<span class="hint">아직 재료가 없어요</span>') +
           '</div>' +
           '<div class="inline-add">' +
-            '<input type="text" placeholder="재료 추가 (예: 대파 1대)" data-ding-add="' + idx + '">' +
+            '<input type="text" placeholder="재료 추가 (예: 대파 1대, 양파 1개)" data-ding-add="' + idx + '">' +
             '<button class="btn" data-ding-btn="' + idx + '" type="button">추가</button>' +
           '</div>' +
         '</div>';
@@ -901,8 +1179,7 @@
       el.onclick = function(){
         var idx = parseInt(el.getAttribute("data-ding"),10);
         var ii = parseInt(el.getAttribute("data-dii"),10);
-        var name = state.dishes[idx];
-        state.ingredients[name].splice(ii,1);
+        removeIngredient(state.dishes[idx], ii);
         scheduleSave(); renderAll();
       };
     });
@@ -910,11 +1187,7 @@
       btn.onclick = function(){
         var idx = parseInt(btn.getAttribute("data-ding-btn"),10);
         var input = dishHost.querySelector('[data-ding-add="'+idx+'"]');
-        var val = input.value.trim();
-        if (!val) return;
-        var name = state.dishes[idx];
-        state.ingredients[name] = state.ingredients[name] || [];
-        state.ingredients[name].push(val);
+        if (!addIngredients(state.dishes[idx], input.value)) return;
         input.value = "";
         scheduleSave(); renderAll();
       };
@@ -942,6 +1215,8 @@
   }
 
   // ---------- lock sheet ----------
+  // Lock texts that are plans, not dishes: not saved to the dish list by default
+  var NOT_A_DISH = /여행|외식|배달|편의점|약속|회식|모임|출장|야근|없음|안\s*먹|굶|시켜|사\s*먹|나가서|밖에서|친구|부모님|본가|휴가/;
   function openLockSheet(dateISO, meal){
     var host = document.getElementById("sheetHost");
     var existing = (state.overrides||[]).find(function(o){return o.date===dateISO && o.meal===meal;});
@@ -960,7 +1235,8 @@
           '<input type="text" id="lkDish" list="dishOptionsList" placeholder="예: 치킨" value="' + (existing? esc(existing.dish) : "") + '">' +
           '<datalist id="dishOptionsList">' + dishOptions.map(function(d){return '<option value="'+esc(d)+'">';}).join("") + '</datalist>' +
         '</div>' +
-        '<p class="hint">원래 이 자리에 있던 메뉴는 다음 끼니로 밀려요(없어지지 않아요). 처음 적는 메뉴는 요리 목록에 저장돼서 2주 뒤 식단부터 자동으로도 섞여 나와요.</p>' +
+        '<label class="check" id="lkSaveRow" hidden><input type="checkbox" id="lkSaveDish"> 요리 목록에도 저장 (2주 뒤부터 자동 식단에 섞여 나와요)</label>' +
+        '<p class="hint">원래 이 자리에 있던 메뉴는 다음 끼니로 밀려요(없어지지 않아요). 여행·외식·배달 같은 건 요리 목록에 저장하지 않아요.</p>' +
         '<p class="hint">고정한 메뉴는 앞뒤 10일 동안 자동배정에서 빠져요.</p>' +
         '<div class="actions">' +
           (existing ? '<button class="btn danger" id="lkRemove">고정 해제</button>' : '') +
@@ -979,6 +1255,20 @@
         overlay.querySelectorAll("[data-meal]").forEach(function(x){x.classList.toggle("on", x===b);});
       };
     });
+    // "save to dish list" shows only for a menu not in the list yet; it's
+    // on by default unless the text looks like a plan rather than a dish
+    var dishInput = document.getElementById("lkDish");
+    var saveRow = document.getElementById("lkSaveRow");
+    var saveBox = document.getElementById("lkSaveDish");
+    var saveTouched = false;
+    function refreshSaveRow(){
+      var v = dishInput.value.trim();
+      saveRow.hidden = !v || dishOptions.indexOf(v) !== -1;
+      if (!saveTouched) saveBox.checked = !NOT_A_DISH.test(v);
+    }
+    dishInput.oninput = refreshSaveRow;
+    saveBox.onchange = function(){ saveTouched = true; };
+    refreshSaveRow();
     overlay.onclick = function(e){ if (e.target===overlay) host.innerHTML=""; };
     document.getElementById("lkCancel").onclick = function(){ host.innerHTML=""; };
     if (existing){
@@ -997,8 +1287,8 @@
       var idx = state.overrides.findIndex(function(o){return o.date===d && o.meal===curMeal;});
       var rec = {id: existing? existing.id : ("ov"+Date.now()), date:d, meal:curMeal, dish:dish};
       if (idx>=0) state.overrides[idx]=rec; else state.overrides.push(rec);
-      // remember new menus: anything typed here joins the dish list for good
-      var added = addDish(dish);
+      // remember new menus (unless unticked, e.g. 여행/외식)
+      var added = (!saveRow.hidden && saveBox.checked) ? addDish(dish) : false;
       host.innerHTML = "";
       scheduleSave(); renderAll();
       showToast(added ? ('고정했어요 🔒 "' + dish + '"는 메뉴 목록에도 저장했어요') : "메뉴를 고정했어요 🔒");
