@@ -852,6 +852,7 @@
     renderActiveTab();
   }
   function reshuffle(){
+    if (!confirm("정말 메뉴를 다시 돌릴까요?\n\n오늘부터 자동으로 정해진 메뉴가 전부 바뀌고, 두 폰 모두에 적용돼요. 되돌릴 수 없어요.\n(고정한 메뉴와 지난 식단은 그대로예요)")) return;
     state.seed = 1 + Math.floor(Math.random()*9998);
     scheduleSave(); renderAll();
     showToast("새 조합으로 바꿨어요");
