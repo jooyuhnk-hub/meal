@@ -1221,15 +1221,14 @@
     for (var i=0; i<SHOP_CATS.length; i++){ if (SHOP_CATS[i].re.test(name)) return SHOP_CATS[i].key; }
     return "etc";
   }
-  // Units are brought to one scale before adding up, so "1T + 2t" shows as
-  // one amount: 작은술(t) -> 큰술(T), kg -> g, L -> ml, plus a few
-  // per-ingredient ones (마늘 1통 ~ 8쪽). If an item still ends up with both
-  // ml and T, the spoons are turned into ml (1T = 15ml).
+  // Units are brought to one scale before adding up: kg -> g, L -> ml, plus
+  // a few per-ingredient ones (마늘 1통 ~ 8쪽). Spoons stay as they are —
+  // 큰술(T) and 작은술(t) are listed side by side, never converted.
   var UNIT_ALIAS = {"큰술":"T","스푼":"T","숟가락":"T","작은술":"t","티스푼":"t","kg":"kg","KG":"kg","l":"L"};
+  var UNIT_LABEL = {"T": "큰술", "t": "작은술"};
   var ITEM_UNITS = {"마늘": {"통": [8, "쪽"]}, "어묵": {"봉": [8, "장"]}};
   function normAmount(name, qty, unit){
     unit = UNIT_ALIAS[unit] || unit;
-    if (unit === "t") return [qty/3, "T"];
     if (unit === "kg") return [qty*1000, "g"];
     if (unit === "L") return [qty*1000, "ml"];
     var per = ITEM_UNITS[name] && ITEM_UNITS[name][unit];
@@ -1258,16 +1257,14 @@
     });
     var list = order.map(function(n){
       var it = items[n];
-      if (it.sums.ml !== undefined && it.sums.T !== undefined){
-        it.sums.ml += it.sums.T * 15;
-        it.units = it.units.filter(function(u){ return u !== "T"; });
-      }
+      function unitRank(u){ return u === "T" ? 1 : u === "t" ? 2 : 0; } // 1.3L + 2큰술, 1큰술 + 2작은술
+      it.units.sort(function(a, b){ return unitRank(a) - unitRank(b); });
       if (it.sums.ml >= 1000){ it.sums.L = it.sums.ml / 1000; it.units = it.units.map(function(u){ return u === "ml" ? "L" : u; }); }
       if (it.sums.g >= 1000){ it.sums.kg = it.sums.g / 1000; it.units = it.units.map(function(u){ return u === "g" ? "kg" : u; }); }
       var amt = it.units.map(function(u){
         // weights/volumes read better as decimals (1.3kg), counts as fractions (1과 1/2개)
         var v = it.sums[u];
-        return (/^(g|kg|ml|L)$/.test(u) ? String(Math.round(v*10)/10) : fmtQty(v)) + u;
+        return (/^(g|kg|ml|L)$/.test(u) ? String(Math.round(v*10)/10) : fmtQty(v)) + (UNIT_LABEL[u] || u);
       }).join(" + ") || it.vague;
       return {name: n, amount: amt, dishes: it.dishes, cat: shopCat(n)};
     });
