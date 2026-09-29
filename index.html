@@ -245,6 +245,8 @@
     z-index:30;
   }
 
+  .fab[hidden]{display:none;}
+
   .sheet-overlay{
     position:fixed;inset:0;background:rgba(10,14,8,.42);z-index:50;
     display:flex;align-items:flex-end;justify-content:center;
@@ -336,6 +338,46 @@
   .check{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:2px 0 10px;cursor:pointer;}
   .check[hidden]{display:none;}
   .check input{width:18px;height:18px;accent-color:var(--accent);flex:none;}
+
+  .today-card{
+    background:var(--accent-soft);border-radius:var(--radius);padding:14px 16px 12px;margin-bottom:12px;
+  }
+  .tc-date{font-size:12.5px;font-weight:700;color:var(--accent);margin-bottom:4px;}
+  .tc-meal{display:flex;align-items:baseline;gap:10px;padding:3px 0;cursor:pointer;}
+  .tc-tag{font-size:12.5px;color:var(--ink-dim);font-weight:600;width:30px;flex:none;}
+  .tc-dish{font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:26px;line-height:1.2;color:var(--ink);flex:1;}
+  .tc-dish.empty{color:var(--ink-faint);}
+  .tc-next{font-size:13px;color:var(--ink-dim);margin-top:6px;padding-top:8px;border-top:1px solid rgba(207,83,48,.18);}
+  .tc-next b{color:var(--ink);font-weight:600;}
+
+  .act-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  .act-grid .btn{padding:12px 8px;font-size:14px;}
+  .act-grid .btn.wide{grid-column:1 / -1;}
+  .cand-box{background:var(--surface);border:1px solid var(--surface-border);border-radius:var(--radius-sm);padding:10px;margin-bottom:10px;}
+  .cand-box[hidden]{display:none;}
+  .cand-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+  .cand-row button{
+    border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);border-radius:999px;
+    padding:8px 13px;font-size:14px;font-weight:500;cursor:pointer;
+  }
+  .sheet .sub{font-size:13px;color:var(--ink-dim);margin:-8px 0 14px;}
+
+  .shop-cat{padding:8px 14px 2px;font-size:12px;font-weight:700;color:var(--accent2);border-top:1px solid var(--surface-border);}
+  .shop-cat:first-of-type{border-top:none;}
+  .si{display:flex;align-items:center;gap:10px;padding:8px 14px;}
+  .si input{width:20px;height:20px;accent-color:var(--accent2);flex:none;}
+  .si .t{flex:1;font-size:14.5px;line-height:1.35;}
+  .si .t small{display:block;font-size:11.5px;color:var(--ink-faint);}
+  .si.done .t{color:var(--ink-faint);text-decoration:line-through;}
+  .si .home{border:none;background:none;color:var(--ink-faint);font-size:12px;cursor:pointer;padding:4px;flex:none;}
+  .shop-progress{font-size:12px;opacity:.85;margin-left:6px;}
+  .shop-foot{padding:10px 14px;border-top:1px solid var(--surface-border);font-size:12.5px;color:var(--ink-dim);line-height:1.5;}
+  .shop-foot a{color:var(--accent);cursor:pointer;text-decoration:underline;}
+  .search{
+    width:100%;padding:9px 11px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:14px;margin-bottom:10px;
+  }
+  .pref-badge{font-size:12px;flex:none;}
 </style>
 </head>
 <body>
@@ -356,6 +398,7 @@
   <div id="connNote"></div>
 
   <section id="tab-plan">
+    <div id="todayCard"></div>
     <div class="status-bar" id="statusBar"></div>
     <div class="view-seg" id="viewSeg">
       <button type="button" data-view="list">다가오는 식단</button>
@@ -367,6 +410,10 @@
   </section>
 
   <section id="tab-shop" hidden>
+    <div class="view-seg" id="shopSeg">
+      <button type="button" data-shop="merged">합친 장보기 목록</button>
+      <button type="button" data-shop="meals">끼니별 재료</button>
+    </div>
     <div id="shopList"></div>
   </section>
 
@@ -394,10 +441,21 @@
     <div class="settings-block">
       <h3>요리 목록 &amp; 재료 (2인 기준)</h3>
       <p class="hint" style="margin-bottom:10px;">요리를 눌러 재료를 추가/삭제할 수 있어요. 재료가 없는 메뉴(배달·편의점 등)는 장보기 리스트에서 재료 칸이 비어요.</p>
+      <input type="search" class="search" id="inDishSearch" placeholder="🔍 요리 검색">
       <div class="dish-list" id="dishList"></div>
       <div class="inline-add" style="margin-top:10px;">
         <input type="text" id="inNewDish" placeholder="새 요리 이름">
         <button class="btn primary" id="btnAddDish" type="button">추가</button>
+      </div>
+    </div>
+
+    <div class="settings-block">
+      <h3>집에 늘 있는 재료</h3>
+      <p class="hint" style="margin-bottom:6px;">여기 있는 재료는 합친 장보기 목록에서 빠져요. 장보기 목록에서 🏠를 눌러도 추가돼요.</p>
+      <div class="chip-row" id="pantryList"></div>
+      <div class="inline-add">
+        <input type="text" id="inPantry" placeholder="예: 참기름, 식용유">
+        <button class="btn" id="btnPantry" type="button">추가</button>
       </div>
     </div>
 
@@ -700,6 +758,8 @@
     var ing = (st.ingredients || {})[name];
     return !!(ing && ing.length && /닭/.test(ing[0]));
   }
+  // 자주 = picked noticeably more often, 가끔 = less often (score stays < 2)
+  function prefWeight(p){ return p === "often" ? 0.6 : p === "rare" ? 1.8 : 1; }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
@@ -747,6 +807,7 @@
     // two weeks out), so adding one doesn't reshuffle meals you've already
     // seen for the next two weeks.
     var join = st.dishJoin || {};
+    var pref = st.dishPref || {};
     var qLastPos = Object.create(null), qj = 0;
     function nextQueueItem(){
       var best = -1, bestScore = Infinity;
@@ -755,7 +816,7 @@
         var lp = qLastPos[dishes[k]];
         var blocked = (lp !== undefined && qj - lp < REPEAT_GAP);
         // very short menu list: fall back to least-recently-used
-        var score = blocked ? 2 + (lp - (qj-REPEAT_GAP))/REPEAT_GAP : rand01(seed, qj, nh[k]);
+        var score = blocked ? 2 + (lp - (qj-REPEAT_GAP))/REPEAT_GAP : prefWeight(pref[dishes[k]]) * rand01(seed, qj, nh[k]);
         if (score < bestScore){ bestScore = score; best = k; }
       }
       if (best === -1) best = 0; // every dish still waiting to join (edge case)
@@ -968,11 +1029,36 @@
   }
   function wireMealRows(host){
     Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
-      row.onclick = function(){ openLockSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+      row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+    });
+  }
+
+  // big "today" card at the top, so a glance is enough
+  function renderTodayCard(){
+    var host = document.getElementById("todayCard");
+    var slots = lastSlots || [];
+    var todays = slots.filter(function(s){ return s.epoch === currentToday; });
+    var tomorrow = slots.filter(function(s){ return s.epoch === currentToday + 1; });
+    if (!todays.length){ host.innerHTML = ""; return; }
+    host.innerHTML = '<div class="today-card">' +
+      '<div class="tc-date">오늘 · ' + dispDate(currentToday) + '</div>' +
+      todays.map(function(s){
+        return '<div class="tc-meal" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
+          '<span class="tc-tag">' + MEAL_LABEL[s.meal] + '</span>' +
+          '<span class="tc-dish' + (s.final ? "" : " empty") + '">' + (s.final ? esc(s.final) : "미정") + '</span>' +
+          (s.isOverride ? '<span class="lock-pill">🔒</span>' : '') + '</div>';
+      }).join("") +
+      (tomorrow.length ? '<div class="tc-next">내일 ' + tomorrow.map(function(s){
+        return MEAL_LABEL[s.meal] + ' <b>' + (s.final ? esc(s.final) : "미정") + '</b>';
+      }).join(" · ") + '</div>' : '') +
+      '</div>';
+    Array.prototype.forEach.call(host.querySelectorAll(".tc-meal"), function(row){
+      row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
     });
   }
 
   function renderPlanTab(){
+    renderTodayCard();
     Array.prototype.forEach.call(document.querySelectorAll("#viewSeg button"), function(b){
       b.classList.toggle("on", b.getAttribute("data-view") === viewMode);
     });
@@ -1082,7 +1168,165 @@
     };
   });
 
+  // ---------- shopping: merged checklist ----------
+  var SHOP_KEY = "mealplan_shopview";
+  var shopMode = "merged";
+  try{ shopMode = localStorage.getItem(SHOP_KEY) || "merged"; }catch(e){}
+  if (shopMode !== "meals") shopMode = "merged";
+  Array.prototype.forEach.call(document.querySelectorAll("#shopSeg button"), function(b){
+    b.onclick = function(){
+      shopMode = b.getAttribute("data-shop");
+      try{ localStorage.setItem(SHOP_KEY, shopMode); }catch(e){}
+      renderShop(lastSlots);
+    };
+  });
+
+  var DEFAULT_PANTRY = ["간장","국간장","설탕","소금","후추","소금·후추","참기름","식초","맛술","고춧가루","고추장","된장","다진마늘","올리브오일","케첩","마요네즈","굴소스","물엿"];
+  function pantryList(){ return state.pantry ? state.pantry : DEFAULT_PANTRY.slice(); }
+  function inPantry(name, pantry){
+    var bare = name.replace(/\(.*?\)/g, "").trim();
+    return pantry.indexOf(name) !== -1 || pantry.indexOf(bare) !== -1;
+  }
+
+  // "대파 1대" -> {name:"대파", qty:1, unit:"대"}; "후추 약간" -> {name:"후추", qty:null, unit:"약간"}
+  function parseIng(item){
+    var t = String(item).trim();
+    var m = t.match(/^(.*\S)\s+(\d+(?:\.\d+)?(?:\/\d+)?)\s*([^\d\s]*)$/);
+    if (m){
+      var q = m[2].indexOf("/") !== -1 ? (function(p){ return parseFloat(p[0]) / parseFloat(p[1]); })(m[2].split("/")) : parseFloat(m[2]);
+      return {name: m[1].trim(), qty: q, unit: m[3]};
+    }
+    var m2 = t.match(/^(.*\S)\s+(약간|조금|적당량|취향껏)$/);
+    return m2 ? {name: m2[1].trim(), qty: null, unit: m2[2]} : {name: t, qty: null, unit: ""};
+  }
+  function fmtQty(q){
+    if (Math.abs(q - Math.round(q)) < 0.01) return String(Math.round(q));
+    var whole = Math.floor(q), rest = q - whole;
+    var dens = [2,3,4,6];
+    for (var i=0; i<dens.length; i++){
+      var num = Math.round(rest * dens[i]);
+      if (num > 0 && Math.abs(rest - num/dens[i]) < 0.01) return (whole ? whole + "과 " : "") + num + "/" + dens[i];
+    }
+    return String(Math.round(q*10)/10);
+  }
+  var SHOP_CATS = [
+    {key:"sauce", label:"🧂 양념·소스", re:/양념|간장|고추장|된장|쌈장|고춧가루|설탕|소금|후추|식초|참기름|오일|맛술|굴소스|케첩|마요네즈|물엿|두반장|카레|짜장|하이라이스|소스|가루|육수|새우젓|와사비|버터|월계수|페페론치노|전분|가쓰오|다진마늘/},
+    {key:"meat", label:"🥩 고기·해산물", re:/고기|삼겹|목살|앞다리|차돌|닭|베이컨|스팸|햄|소시지|갈비|등뼈|오징어|새우|연어|고등어|바지락|홍합|어묵|맛살|양지|우삼겹|수육/},
+    {key:"dairy", label:"🥚 계란·두부·유제품", re:/계란|두부|우유|생크림|치즈/},
+    {key:"carb", label:"🍜 면·밥·떡", re:/면|파스타|스파게티|당면|라면|떡|밥|수제비|라이스페이퍼|만두|김밥김/},
+    {key:"veg", label:"🥬 채소", re:/파|양파|마늘|감자|고구마|당근|호박|양배추|배추|상추|깻잎|버섯|표고|양송이|시금치|콩나물|숙주|^무$|오이|고추|파프리카|청경채|부추|우거지|고사리|아스파라거스|레몬|라임|고수|토마토/},
+    {key:"etc", label:"🛒 기타", re:/.*/}
+  ];
+  function shopCat(name){
+    for (var i=0; i<SHOP_CATS.length; i++){ if (SHOP_CATS[i].re.test(name)) return SHOP_CATS[i].key; }
+    return "etc";
+  }
+  // merge one week's ingredients: same name + unit add up
+  function mergeWeek(arr, pantry){
+    var items = Object.create(null), order = [], hidden = [], noIng = [];
+    arr.forEach(function(s){
+      if (!s.final) return;
+      var ing = (state.ingredients || {})[s.final];
+      if (!ing || !ing.length){ if (noIng.indexOf(s.final) === -1) noIng.push(s.final); return; }
+      ing.forEach(function(raw){
+        var p = parseIng(raw);
+        if (!p.name) return;
+        if (inPantry(p.name, pantry)){ if (hidden.indexOf(p.name) === -1) hidden.push(p.name); return; }
+        var it = items[p.name];
+        if (!it){ it = items[p.name] = {name: p.name, sums: {}, units: [], vague: "", dishes: []}; order.push(p.name); }
+        if (p.qty !== null){
+          if (it.sums[p.unit] === undefined){ it.sums[p.unit] = 0; it.units.push(p.unit); }
+          it.sums[p.unit] += p.qty;
+        } else if (!it.vague) it.vague = p.unit;
+        if (it.dishes.indexOf(s.final) === -1) it.dishes.push(s.final);
+      });
+    });
+    var list = order.map(function(n){
+      var it = items[n];
+      var amt = it.units.map(function(u){ return fmtQty(it.sums[u]) + u; }).join(" + ") || it.vague;
+      return {name: n, amount: amt, dishes: it.dishes, cat: shopCat(n)};
+    });
+    return {list: list, hidden: hidden, noIng: noIng};
+  }
+  function weekKeyOf(epoch){ return toISO(epoch - (isoWeekdayMon1(epoch) - 1)); }
+
   function renderShop(slots){
+    Array.prototype.forEach.call(document.querySelectorAll("#shopSeg button"), function(b){
+      b.classList.toggle("on", b.getAttribute("data-shop") === shopMode);
+    });
+    if (shopMode === "merged") renderShopMerged(slots); else renderShopMeals(slots);
+  }
+
+  function renderShopMerged(slots){
+    var host = document.getElementById("shopList");
+    if (!(state.dishes||[]).length){ host.innerHTML = '<p class="empty-note">설정 탭에서 요리를 먼저 추가해주세요.</p>'; return; }
+    var pantry = pantryList();
+    var checked = state.shopChecked || {};
+    var byWeek = {};
+    slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
+    var html = "";
+    Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
+      var arr = byWeek[wk], wki = parseInt(wk,10);
+      var wkey = weekKeyOf(arr[0].epoch);
+      var done = checked[wkey] || {};
+      var m = mergeWeek(arr, pantry);
+      var nDone = m.list.filter(function(it){ return done[it.name]; }).length;
+      html += '<div class="shop-week"><h2>🛒 ' + weekLabel(wki) + (wki === 0 ? ' (오늘부터)' : '') +
+        '<span class="shop-progress">' + (m.list.length ? nDone + '/' + m.list.length + ' 담음' : '') + '</span></h2>';
+      // classify sauce-first (so 고추장 isn't a 고추), but list it last
+      ["veg","meat","dairy","carb","etc","sauce"].map(function(k){
+        return SHOP_CATS.filter(function(c){ return c.key === k; })[0];
+      }).forEach(function(cat){
+        var items = m.list.filter(function(it){ return it.cat === cat.key; });
+        if (!items.length) return;
+        items.sort(function(a, b){ return (done[a.name] ? 1 : 0) - (done[b.name] ? 1 : 0); });
+        html += '<div class="shop-cat">' + cat.label + '</div>';
+        items.forEach(function(it){
+          html += '<label class="si' + (done[it.name] ? " done" : "") + '">' +
+            '<input type="checkbox" data-wk="' + wkey + '" data-item="' + esc(it.name) + '"' + (done[it.name] ? " checked" : "") + '>' +
+            '<span class="t">' + esc(it.name) + (it.amount ? ' ' + esc(it.amount) : '') + '<small>' + it.dishes.map(esc).join(", ") + '</small></span>' +
+            '<button class="home" type="button" data-home="' + esc(it.name) + '" title="집에 늘 있는 재료로">🏠</button>' +
+          '</label>';
+        });
+      });
+      if (!m.list.length) html += '<div class="shop-foot">살 재료가 없어요.</div>';
+      if (m.noIng.length || m.hidden.length){
+        html += '<div class="shop-foot">' +
+          (m.noIng.length ? '재료 없는 메뉴: ' + m.noIng.map(function(n){ return '<a data-ing="' + esc(n) + '">' + esc(n) + '</a>'; }).join(", ") + '<br>' : '') +
+          (m.hidden.length ? '집에 있어서 뺀 재료: ' + m.hidden.map(esc).join(", ") : '') +
+        '</div>';
+      }
+      html += '</div>';
+    });
+    host.innerHTML = html;
+    Array.prototype.forEach.call(host.querySelectorAll("input[data-item]"), function(cb){
+      cb.onchange = function(){
+        var wk = cb.getAttribute("data-wk"), name = cb.getAttribute("data-item");
+        state.shopChecked = state.shopChecked || {};
+        // drop finished weeks
+        var thisWeek = weekKeyOf(currentToday);
+        Object.keys(state.shopChecked).forEach(function(k){ if (k < thisWeek) delete state.shopChecked[k]; });
+        var w = state.shopChecked[wk] = state.shopChecked[wk] || {};
+        if (cb.checked) w[name] = true; else delete w[name];
+        scheduleSave(); renderAll();
+      };
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-home]"), function(b){
+      b.onclick = function(ev){
+        ev.preventDefault(); ev.stopPropagation();
+        var name = b.getAttribute("data-home");
+        state.pantry = pantryList();
+        if (state.pantry.indexOf(name) === -1) state.pantry.push(name);
+        scheduleSave(); renderAll();
+        showToast('"' + name + '"는 이제 장보기에서 빠져요 (설정에서 되돌릴 수 있어요)');
+      };
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-ing]"), function(a){
+      a.onclick = function(){ openIngredientSheet(a.getAttribute("data-ing")); };
+    });
+  }
+
+  function renderShopMeals(slots){
     var host = document.getElementById("shopList");
     var dishes = state.dishes||[];
     if (!dishes.length){ host.innerHTML = '<p class="empty-note">설정 탭에서 요리를 먼저 추가해주세요.</p>'; return; }
@@ -1190,18 +1434,28 @@
 
     var dishHost = document.getElementById("dishList");
     var dishes = state.dishes||[];
+    var pref = state.dishPref || {};
+    var q = recipeKey(document.getElementById("inDishSearch").value);
     var html = "";
     dishes.forEach(function(name, idx){
+      if (q && recipeKey(name).indexOf(q) === -1) return;
       var ing = (state.ingredients && state.ingredients[name]) || [];
       var open = (expandedDish === idx);
+      var pv = pref[name] || "normal";
       html += '<div class="dish-card">' +
         '<div class="dish-head" data-idx="' + idx + '">' +
           '<span class="name">' + esc(name) + '</span>' +
+          (pv === "often" ? '<span class="pref-badge">⭐자주</span>' : pv === "rare" ? '<span class="pref-badge">💤가끔</span>' : '') +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
         '</div>';
       if (open){
         html += '<div class="dish-body">' +
+          '<div class="seg" style="margin-top:10px;">' +
+            [["often","⭐ 자주"],["normal","보통"],["rare","💤 가끔"]].map(function(o){
+              return '<button type="button" data-pref="' + o[0] + '" data-pidx="' + idx + '" class="' + (pv === o[0] ? "on" : "") + '">' + o[1] + '</button>';
+            }).join("") +
+          '</div>' +
           '<div class="chip-row">' +
           (ing.length ? ing.map(function(item, ii){
             return '<span class="chip">' + esc(item) + '<button data-ding="' + idx + '" data-dii="' + ii + '">✕</button></span>';
@@ -1215,7 +1469,30 @@
       }
       html += '</div>';
     });
-    dishHost.innerHTML = html || '<p class="hint">아직 요리가 없어요.</p>';
+    dishHost.innerHTML = html || '<p class="hint">' + (q ? "검색 결과가 없어요." : "아직 요리가 없어요.") + '</p>';
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-pref]"), function(b){
+      b.onclick = function(){
+        var name = state.dishes[parseInt(b.getAttribute("data-pidx"),10)];
+        var v = b.getAttribute("data-pref");
+        state.dishPref = state.dishPref || {};
+        if (v === "normal") delete state.dishPref[name]; else state.dishPref[name] = v;
+        scheduleSave(); renderAll();
+        showToast(v === "often" ? '"' + name + '" 더 자주 나와요' : v === "rare" ? '"' + name + '" 가끔만 나와요' : '"' + name + '" 보통으로 나와요');
+      };
+    });
+
+    var pantry = pantryList();
+    var pHost = document.getElementById("pantryList");
+    pHost.innerHTML = pantry.length ? pantry.map(function(n, i){
+      return '<span class="chip">' + esc(n) + '<button type="button" data-pantry-rm="' + i + '">✕</button></span>';
+    }).join("") : '<span class="hint">없어요</span>';
+    Array.prototype.forEach.call(pHost.querySelectorAll("[data-pantry-rm]"), function(b){
+      b.onclick = function(){
+        state.pantry = pantryList();
+        state.pantry.splice(parseInt(b.getAttribute("data-pantry-rm"),10), 1);
+        scheduleSave(); renderAll();
+      };
+    });
 
     Array.prototype.forEach.call(dishHost.querySelectorAll(".dish-head"), function(el){
       el.onclick = function(e){
@@ -1274,6 +1551,106 @@
         scheduleSave(); renderAll();
       };
     });
+  }
+
+  // ---------- quick meal sheet (tap a meal) ----------
+  function setLock(dateISO, meal, dish){
+    state.overrides = state.overrides || [];
+    var idx = state.overrides.findIndex(function(o){ return o.date === dateISO && o.meal === meal; });
+    var rec = {id: idx >= 0 ? state.overrides[idx].id : ("ov" + Date.now()), date: dateISO, meal: meal, dish: dish};
+    if (idx >= 0) state.overrides[idx] = rec; else state.overrides.push(rec);
+  }
+  function removeLock(dateISO, meal){
+    state.overrides = (state.overrides || []).filter(function(o){ return !(o.date === dateISO && o.meal === meal); });
+  }
+  // Dishes that fit this slot: not on the plan within 10 days either side,
+  // no chicken too close, not the current one. Ordered by a stable random
+  // per slot (자주/가끔 preferences count), so the list doesn't jump around.
+  function suggestDishes(e, meal, current){
+    var win = generatePlan(state, currentToday, {from: e - 10, to: e + 10});
+    var gap = chickenGapOf(state), near = Object.create(null), chickenNear = false;
+    win.forEach(function(s){
+      if (s.epoch === e && s.meal === meal) return;
+      if (!s.final) return;
+      near[s.final] = 1;
+      if (gap >= 2 && isChicken(state, s.final) && Math.abs(s.epoch - e) < gap) chickenNear = true;
+    });
+    var pref = state.dishPref || {};
+    var slotHash = hash32(toISO(e) + "|" + meal);
+    var all = uniqueDishes(state.dishes).filter(function(n){ return n !== current && !NOT_A_DISH.test(n); });
+    var good = all.filter(function(n){ return !near[n] && !(chickenNear && isChicken(state, n)); });
+    var list = good.length >= 3 ? good : all;
+    return list.map(function(n){ return {n: n, sc: prefWeight(pref[n]) * rand01(state.seed || 1, slotHash, hash32(n))}; })
+      .sort(function(a, b){ return a.sc - b.sc; })
+      .map(function(x){ return x.n; });
+  }
+  function openMealSheet(dateISO, meal){
+    var e = parseISO(dateISO);
+    var slot = generatePlan(state, currentToday, {from: e, to: e}).filter(function(s){ return s.meal === meal; })[0];
+    var dish = slot ? slot.final : "";
+    var locked = slot && slot.isOverride;
+    var past = e < currentToday;
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML =
+      '<div class="sheet">' +
+        '<h3>' + dispDate(e) + ' ' + MEAL_LABEL[meal] + ' · ' + (dish ? esc(dish) : (past ? "기록 없음" : "미정")) + (locked ? ' 🔒' : '') + '</h3>' +
+        '<p class="sub">' + (past ? "지난 끼니예요. 바꾸면 기록이 바뀌어요." : "바꾸면 원래 메뉴는 다음 끼니로 밀려요.") + '</p>' +
+        '<div class="act-grid">' +
+          '<button class="btn" type="button" data-quick="외식">🍽 외식</button>' +
+          '<button class="btn" type="button" data-quick="배달">🛵 배달</button>' +
+          '<button class="btn wide" type="button" id="msSuggest">🔄 다른 메뉴 추천</button>' +
+        '</div>' +
+        '<div class="cand-box" id="msCands" hidden></div>' +
+        '<div class="act-grid">' +
+          '<button class="btn" type="button" id="msType">✏️ 직접 입력</button>' +
+          (dish ? '<button class="btn" type="button" id="msIng">🥕 재료 보기</button>' : '<span></span>') +
+          (locked ? '<button class="btn danger wide" type="button" id="msUnlock">🔓 고정 해제 (자동 메뉴로)</button>' : '') +
+        '</div>' +
+        '<div class="actions"><button class="btn" type="button" id="msClose">닫기</button></div>' +
+      '</div>';
+    host.innerHTML = "";
+    host.appendChild(overlay);
+    function close(){ host.innerHTML = ""; }
+    function apply(name){
+      setLock(dateISO, meal, name);
+      close(); scheduleSave(); renderAll();
+      showToast('"' + name + '"(으)로 바꿨어요 🔒');
+    }
+    overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
+    overlay.querySelector("#msClose").onclick = close;
+    Array.prototype.forEach.call(overlay.querySelectorAll("[data-quick]"), function(b){
+      b.onclick = function(){ apply(b.getAttribute("data-quick")); };
+    });
+    overlay.querySelector("#msType").onclick = function(){ openLockSheet(dateISO, meal); };
+    if (dish) overlay.querySelector("#msIng").onclick = function(){ openIngredientSheet(dish); };
+    if (locked){
+      overlay.querySelector("#msUnlock").onclick = function(){
+        removeLock(dateISO, meal);
+        close(); scheduleSave(); renderAll();
+        showToast("고정을 해제했어요");
+      };
+    }
+    var cands = null, page = 0, PER = 6;
+    function drawCands(){
+      var box = overlay.querySelector("#msCands");
+      var shown = cands.slice(page*PER, page*PER + PER);
+      box.hidden = false;
+      box.innerHTML = '<div class="hint">앞뒤 10일 안에 안 나오는 메뉴 중에서 골랐어요' + (chickenGapOf(state) >= 2 ? ' (닭 간격도 지켜요)' : '') + '</div>' +
+        '<div class="cand-row">' + shown.map(function(n){ return '<button type="button" data-cand="' + esc(n) + '">' + esc(n) + '</button>'; }).join("") + '</div>' +
+        (cands.length > PER ? '<button class="btn" type="button" id="msMore">다른 후보 보기</button>' : '');
+      Array.prototype.forEach.call(box.querySelectorAll("[data-cand]"), function(b){
+        b.onclick = function(){ apply(b.getAttribute("data-cand")); };
+      });
+      var more = box.querySelector("#msMore");
+      if (more) more.onclick = function(){ page = (page + 1) % Math.ceil(cands.length / PER); drawCands(); };
+    }
+    overlay.querySelector("#msSuggest").onclick = function(){
+      if (!cands) cands = suggestDishes(e, meal, dish);
+      if (!cands.length){ showToast("추천할 메뉴가 없어요"); return; }
+      drawCands();
+    };
   }
 
   // ---------- lock sheet ----------
@@ -1385,6 +1762,18 @@
     state.weeks = v; scheduleSave(); renderAll();
   };
   document.getElementById("btnShuffle").onclick = reshuffle;
+  document.getElementById("inDishSearch").oninput = function(){ expandedDish = null; renderSettings(); };
+  function addPantry(){
+    var input = document.getElementById("inPantry");
+    var items = splitIngredients(input.value);
+    if (!items.length) return;
+    state.pantry = pantryList();
+    items.forEach(function(n){ if (state.pantry.indexOf(n) === -1) state.pantry.push(n); });
+    input.value = "";
+    scheduleSave(); renderAll();
+  }
+  document.getElementById("btnPantry").onclick = addPantry;
+  document.getElementById("inPantry").onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); addPantry(); } };
   document.getElementById("btnUndoShuffle").onclick = undoReshuffle;
   document.getElementById("btnAddDish").onclick = function(){
     var input = document.getElementById("inNewDish");
