@@ -376,7 +376,8 @@
       <div class="field-row"><label>보여줄 주</label><input type="number" id="inWeeks" min="1" max="12"></div>
       <p class="hint" style="margin-bottom:12px;">식단표는 항상 오늘 날짜부터 자동으로 보여줘요. 지난 날짜는 알아서 사라져요.</p>
       <button class="btn block" id="btnShuffle" type="button">🎲 다른 조합으로 바꾸기</button>
-      <p class="hint" style="margin-top:6px;">자동배정 메뉴가 통째로 바뀌어요. 고정한 메뉴는 그대로예요.</p>
+      <button class="btn block" id="btnUndoShuffle" type="button" style="margin-top:8px;" hidden>↩ 이전 조합으로 되돌리기</button>
+      <p class="hint" style="margin-top:6px;">자동배정 메뉴가 통째로 바뀌어요. 고정한 메뉴는 그대로예요. 실수로 바꿨으면 되돌릴 수 있어요(최근 10번까지).</p>
     </div>
 
     <div class="settings-block">
@@ -852,10 +853,24 @@
     renderActiveTab();
   }
   function reshuffle(){
-    if (!confirm("정말 메뉴를 다시 돌릴까요?\n\n오늘부터 자동으로 정해진 메뉴가 전부 바뀌고, 두 폰 모두에 적용돼요. 되돌릴 수 없어요.\n(고정한 메뉴와 지난 식단은 그대로예요)")) return;
-    state.seed = 1 + Math.floor(Math.random()*9998);
+    if (!confirm("정말 메뉴를 다시 돌릴까요?\n\n오늘부터 자동으로 정해진 메뉴가 전부 바뀌고, 두 폰 모두에 적용돼요.\n(고정한 메뉴와 지난 식단은 그대로예요. 실수로 돌렸으면 \"↩ 되돌리기\"로 돌아갈 수 있어요)")) return;
+    // remember the old combination so it can be undone (shared, last 10)
+    state.prevSeeds = (state.prevSeeds || []).concat([state.seed]).slice(-MAX_UNDO);
+    var next;
+    do { next = 1 + Math.floor(Math.random()*9998); } while (next === state.seed);
+    state.seed = next;
     scheduleSave(); renderAll();
     showToast("새 조합으로 바꿨어요");
+  }
+  var MAX_UNDO = 10;
+  function undoReshuffle(){
+    var prev = state.prevSeeds || [];
+    if (!prev.length) return;
+    if (!confirm("바로 전 조합으로 되돌릴까요?\n\n두 폰 모두에 적용돼요.")) return;
+    state.seed = prev[prev.length - 1];
+    state.prevSeeds = prev.slice(0, -1);
+    scheduleSave(); renderAll();
+    showToast("이전 조합으로 되돌렸어요");
   }
   function renderActiveTab(){
     if (activeTab==="plan" && tabDirty.plan){ renderPlanTab(); tabDirty.plan=false; }
@@ -871,8 +886,12 @@
       '<span class="badge ' + (ok?"ok":"warn") + '">' + (ok?"✅ 요리 " + n + "개":"⚠ 요리 " + n + "개, 14개+ 추천") + '</span>' +
       '<span>오늘 <b>' + dispDate(currentToday) + '</b>부터 · <b>' + state.weeks + '주</b></span>' +
       '<span class="spacer"></span>' +
+      ((state.prevSeeds||[]).length ? '<button class="reshuffle" id="quickUndo" type="button">↩ 되돌리기</button>' : '') +
       '<button class="reshuffle" id="quickShuffle" type="button">🎲 다른 조합</button>';
     document.getElementById("quickShuffle").onclick = reshuffle;
+    var undoBtn = document.getElementById("quickUndo");
+    if (undoBtn) undoBtn.onclick = undoReshuffle;
+    document.getElementById("btnUndoShuffle").hidden = !(state.prevSeeds||[]).length;
   }
   function fmtKDate(iso){
     var e = parseISO(iso); var f = fromEpochDay(e);
@@ -1319,6 +1338,7 @@
     state.weeks = v; scheduleSave(); renderAll();
   };
   document.getElementById("btnShuffle").onclick = reshuffle;
+  document.getElementById("btnUndoShuffle").onclick = undoReshuffle;
   document.getElementById("btnAddDish").onclick = function(){
     var input = document.getElementById("inNewDish");
     var v = input.value.trim();
