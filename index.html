@@ -442,7 +442,7 @@
 
     <div class="settings-block">
       <h3>요리 목록 &amp; 재료 (2인 기준)</h3>
-      <p class="hint" style="margin-bottom:10px;">요리를 눌러 재료를 추가/삭제할 수 있어요. 재료가 없는 메뉴(배달·편의점 등)는 장보기 리스트에서 재료 칸이 비어요.</p>
+      <p class="hint" style="margin-bottom:10px;">🥗는 점심에 우선 나오는 가벼운 메뉴, 🍖는 저녁 위주 든든한 메뉴예요. 요리를 눌러 바꿀 수 있어요. 요리를 눌러 재료를 추가/삭제할 수 있어요. 재료가 없는 메뉴(배달·편의점 등)는 장보기 리스트에서 재료 칸이 비어요.</p>
       <input type="search" class="search" id="inDishSearch" placeholder="🔍 요리 검색">
       <div class="dish-list" id="dishList"></div>
       <div class="inline-add" style="margin-top:10px;">
@@ -787,6 +787,21 @@
   }
   function isChicken(st, name){ return dishCats(st, name).indexOf("chicken") !== -1; }
   function avoidRepeatOf(st){ return st.avoidRepeat !== false; }
+  // How filling a dish is: "light" (점심에 좋은 한 그릇), "heavy" (찜·탕·고기 구이
+  // 같은 든든한 저녁), or "normal". Guessed from the name; can be set per dish
+  // (state.dishWeight). Lunch prefers light, then normal, heavy only if
+  // nothing else fits.
+  var LIGHT_RE = /라면|파스타|알올|볶음밥|마요|나시고랭|떡볶이|떡만두국|떡국|오므라이스|비빔|국수|김밥|덮밥|계란밥|우동|카레|규동|오야코동|짜장|하이라이스|만두|쌀국수|칼국수|수제비|피자|편의점|토스트|샌드위치|샐러드|죽|월남쌈/;
+  var HEAVY_RE = /수육|찜|탕|삼겹|샤브|스테이크|닭갈비|족발|보쌈|곱창|부대찌개|전골/;
+  function dishWeight(st, name){
+    var set = (st.dishWeight || {})[name];
+    if (set) return set;
+    name = String(name || "");
+    if (LIGHT_RE.test(name)) return "light";
+    if (HEAVY_RE.test(name)) return "heavy";
+    return "normal";
+  }
+  function lunchPenalty(st, name){ var w = dishWeight(st, name); return w === "light" ? 0 : w === "normal" ? 1 : 2; }
   // 자주 = picked noticeably more often, 가끔 = less often (score stays < 2)
   function prefWeight(p){ return p === "often" ? 0.6 : p === "rare" ? 1.8 : 1; }
   // A weekday marked as a holiday (state.holidays, ISO dates) plans like a
@@ -915,22 +930,26 @@
           final = String(ov.dish).trim(); isOv = true;
         } else if (fromQueue && dishes.length){
           while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
-          // best candidate that passes every rule; if none does, give up the
-          // softer rules first (10-day repeat, then same-kind-in-a-row),
-          // never the chicken spacing unless nothing is left at all
-          var pick = -1, okKind = -1, okChicken = -1;
+          // Score every buffered candidate on the rules, most important
+          // first, and take the best (earliest in the queue on a tie):
+          // chicken spacing > same kind in a row > 10-day repeat > light lunch.
+          var pick = 0, best = null;
           for (var b=0; b<buffer.length; b++){
             var cand = buffer[b];
             var lp2 = lastPlaced[cand];
-            if (chickenTooSoon(cand, e)) continue;
-            if (okChicken === -1) okChicken = b;
-            if (catClash(cand, e)) continue;
-            if (okKind === -1) okKind = b;
-            if (nearLock(cand, e)) continue;
-            if (lp2 !== undefined && e - lp2 < 10) continue;
-            pick = b; break;
+            var sc = [
+              chickenTooSoon(cand, e) ? 1 : 0,
+              catClash(cand, e) ? 1 : 0,
+              (nearLock(cand, e) || (lp2 !== undefined && e - lp2 < 10)) ? 1 : 0,
+              meal === "lunch" ? lunchPenalty(st, cand) : 0
+            ];
+            var better = !best;
+            for (var si=0; !better && si<sc.length; si++){
+              if (sc[si] !== best[si]){ better = sc[si] < best[si]; break; }
+            }
+            if (better){ best = sc; pick = b; }
+            if (!sc[0] && !sc[1] && !sc[2] && !sc[3]) break;
           }
-          if (pick === -1) pick = okKind !== -1 ? okKind : okChicken !== -1 ? okChicken : 0;
           final = buffer.splice(pick, 1)[0];
         }
         if (final) lastPlaced[final] = e;
@@ -1526,6 +1545,7 @@
             var c = DISH_CATS.filter(function(x){ return x.key === k; })[0]; return c ? c.icon : "";
           }).join("") + '</span>' +
           (pv === "often" ? '<span class="pref-badge">⭐자주</span>' : pv === "rare" ? '<span class="pref-badge">💤가끔</span>' : '') +
+          (dishWeight(state, name) === "light" ? '<span class="pref-badge">🥗</span>' : dishWeight(state, name) === "heavy" ? '<span class="pref-badge">🍖</span>' : '') +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
         '</div>';
@@ -1534,6 +1554,11 @@
           '<div class="seg" style="margin-top:10px;">' +
             [["often","⭐ 자주"],["normal","보통"],["rare","💤 가끔"]].map(function(o){
               return '<button type="button" data-pref="' + o[0] + '" data-pidx="' + idx + '" class="' + (pv === o[0] ? "on" : "") + '">' + o[1] + '</button>';
+            }).join("") +
+          '</div>' +
+          '<div class="seg" style="margin-top:8px;">' +
+            [["light","🥗 가벼움(점심)"],["normal","보통"],["heavy","🍖 든든(저녁)"]].map(function(o){
+              return '<button type="button" data-weight="' + o[0] + '" data-widx="' + idx + '" class="' + (dishWeight(state, name) === o[0] ? "on" : "") + '">' + o[1] + '</button>';
             }).join("") +
           '</div>' +
           '<div class="chip-row">' +
@@ -1550,6 +1575,16 @@
       html += '</div>';
     });
     dishHost.innerHTML = html || '<p class="hint">' + (q ? "검색 결과가 없어요." : "아직 요리가 없어요.") + '</p>';
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-weight]"), function(b){
+      b.onclick = function(){
+        var name = state.dishes[parseInt(b.getAttribute("data-widx"),10)];
+        var v = b.getAttribute("data-weight");
+        state.dishWeight = state.dishWeight || {};
+        state.dishWeight[name] = v; // stored even if it matches the guess, so it never changes behind your back
+        scheduleSave(); renderAll();
+        showToast(v === "light" ? '"' + name + '" 점심에 우선 나와요' : v === "heavy" ? '"' + name + '"는 저녁 위주로 나와요' : '"' + name + '" 점심·저녁 상관없이 나와요');
+      };
+    });
     Array.prototype.forEach.call(dishHost.querySelectorAll("[data-pref]"), function(b){
       b.onclick = function(){
         var name = state.dishes[parseInt(b.getAttribute("data-pidx"),10)];
@@ -1690,7 +1725,9 @@
     var all = uniqueDishes(state.dishes).filter(function(n){ return n !== current && !NOT_A_DISH.test(n); });
     var good = all.filter(function(n){ return !near[n] && !(chickenNear && isChicken(state, n)) && !kindClash(n); });
     var list = good.length >= 3 ? good : all;
-    return list.map(function(n){ return {n: n, sc: prefWeight(pref[n]) * rand01(state.seed || 1, slotHash, hash32(n))}; })
+    return list.map(function(n){
+        return {n: n, sc: (meal === "lunch" ? lunchPenalty(state, n) : 0) + prefWeight(pref[n]) * rand01(state.seed || 1, slotHash, hash32(n)) / 2};
+      })
       .sort(function(a, b){ return a.sc - b.sc; })
       .map(function(x){ return x.n; });
   }
