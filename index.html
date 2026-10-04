@@ -432,6 +432,8 @@
         </select></div>
       </div>
       <p class="hint" id="chickenHint" style="margin-bottom:12px;"></p>
+      <label class="check"><input type="checkbox" id="inAvoidRepeat"> 같은 종류(닭·돼지·소·면 등)는 연달아 안 나오게</label>
+      <p class="hint" style="margin:-6px 0 12px;">어제나 내일과 같은 종류는 자동 메뉴에서 피해요. 외식·배달도 종류를 고르면 함께 따져요.</p>
       <p class="hint" style="margin-bottom:12px;">식단표는 항상 오늘 날짜부터 자동으로 보여줘요. 지난 날짜는 알아서 사라져요.</p>
       <button class="btn block" id="btnShuffle" type="button">🎲 다른 조합으로 바꾸기</button>
       <button class="btn block" id="btnUndoShuffle" type="button" style="margin-top:8px;" hidden>↩ 이전 조합으로 되돌리기</button>
@@ -461,7 +463,7 @@
 
     <div class="settings-block">
       <h3>휴일로 지정한 날</h3>
-      <p class="hint" style="margin-bottom:6px;">평일이 공휴일이면 식단에서 그 날 저녁을 누르고 "🎌 이 날 휴일로"를 누르세요. 점심·저녁이 주말처럼 둘 다 나와요.</p>
+      <p class="hint" style="margin-bottom:6px;">평일 공휴일은 자동으로 휴일이 돼서 점심·저녁이 주말처럼 둘 다 나와요. 출근하는 날이면 해제하세요. 다른 날을 휴일로 만들려면 식단에서 그 날 저녁을 누르고 "🎌 이 날 휴일로"를 누르면 돼요.</p>
       <div id="holidayList"></div>
     </div>
 
@@ -756,20 +758,55 @@
   // end of the "weeks" setting).
   var REPEAT_GAP = 14;
   var LOOKAHEAD = 10;
-  // A dish counts as chicken if its name says so, or its main (first)
-  // ingredient is chicken.
-  var CHICKEN_RE = /닭|치킨/;
-  function isChicken(st, name){
-    if (CHICKEN_RE.test(name)) return true;
-    var ing = (st.ingredients || {})[name];
-    return !!(ing && ing.length && /닭/.test(ing[0]));
+  // Dish kinds, used so the same kind doesn't land on back-to-back days.
+  // A dish gets a kind from its name, or from its main (first) ingredient;
+  // it can have more than one (우삼겹 파스타 = 소 + 면).
+  // "외식(닭)" / "배달(피자·버거)" carry their kind in the brackets.
+  var DISH_CATS = [
+    {key:"chicken", label:"닭", icon:"🍗", re:/닭|치킨/, ing:/닭/},
+    {key:"pork", label:"돼지", icon:"🐷", re:/돼지|제육|수육|삼겹|목살|감자탕|등갈비|스팸|베이컨|돈까스|돈가스|김치찌개|부대찌개|고추장\s*찌개|순대|족발|보쌈/, ing:/돼지|삼겹|목살|앞다리|스팸|베이컨|등갈비|등뼈/},
+    {key:"beef", label:"소", icon:"🐮", re:/소고기|쇠고기|차돌|우삼겹|갈비탕|불고기|스테이크|샤브|규동|육개장|한우|곱창/, ing:/소고기|차돌|우삼겹|소갈비|양지|소불고기/},
+    {key:"seafood", label:"해산물", icon:"🦐", re:/오징어|새우|연어|고등어|해물|짬뽕|조개|바지락|초밥|생선|낙지|쭈꾸미|주꾸미|회/, ing:/오징어|새우|연어|고등어|바지락|홍합/},
+    {key:"noodle", label:"면", icon:"🍜", re:/면|파스타|라면|국수|우동|짬뽕|칼국수|수제비|알올|짜장/, ing:/면|파스타|스파게티|소면|우동|당면/},
+    {key:"pizza", label:"피자·버거", icon:"🍕", re:/피자|버거/},
+    {key:"chinese", label:"중식", icon:"🥟"},
+    {key:"japanese", label:"일식", icon:"🍣"}
+  ];
+  var OUT_RE = /^(외식|배달)\((.+)\)$/;
+  function dishCats(st, name){
+    name = String(name || "");
+    var out = name.match(OUT_RE);
+    if (out){
+      var c = DISH_CATS.filter(function(x){ return x.label === out[2]; })[0];
+      return c ? [c.key] : [];
+    }
+    var first = ((st.ingredients || {})[name] || [])[0] || "";
+    return DISH_CATS.filter(function(c){
+      return (c.re && c.re.test(name)) || (c.ing && first && c.ing.test(first));
+    }).map(function(c){ return c.key; });
   }
+  function isChicken(st, name){ return dishCats(st, name).indexOf("chicken") !== -1; }
+  function avoidRepeatOf(st){ return st.avoidRepeat !== false; }
   // 자주 = picked noticeably more often, 가끔 = less often (score stays < 2)
   function prefWeight(p){ return p === "often" ? 0.6 : p === "rare" ? 1.8 : 1; }
   // A weekday marked as a holiday (state.holidays, ISO dates) plans like a
   // weekend: lunch and dinner. Adding one takes an extra meal from the
   // queue, so the menus after it slide back by one, same as everywhere else.
-  function isHoliday(st, iso){ return (st.holidays || []).indexOf(iso) !== -1; }
+  // Korean public holidays that fall on a weekday (weekends plan two meals
+  // anyway), from 2026-10 on. Each can be switched off per date
+  // (state.holidayOff); other days can be added by hand (state.holidays).
+  var PUBLIC_HOLIDAYS = {
+    "2026-10-05":"개천절 대체공휴일","2026-10-09":"한글날","2026-12-25":"성탄절",
+    "2027-01-01":"신정","2027-02-08":"설날 연휴","2027-02-09":"설날 대체공휴일","2027-03-01":"삼일절",
+    "2027-05-05":"어린이날","2027-05-13":"부처님오신날","2027-08-16":"광복절 대체공휴일",
+    "2027-09-14":"추석 연휴","2027-09-15":"추석","2027-09-16":"추석 연휴",
+    "2027-10-04":"개천절 대체공휴일","2027-10-11":"한글날 대체공휴일","2027-12-27":"성탄절 대체공휴일"
+  };
+  function isHoliday(st, iso){
+    if ((st.holidays || []).indexOf(iso) !== -1) return true;
+    return !!PUBLIC_HOLIDAYS[iso] && (st.holidayOff || []).indexOf(iso) === -1;
+  }
+  function holidayName(st, iso){ return isHoliday(st, iso) ? (PUBLIC_HOLIDAYS[iso] || "휴일") : ""; }
   function isOffDay(st, e){ return isoWeekdayMon1(e) >= 6 || isHoliday(st, toISO(e)); }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
@@ -805,6 +842,26 @@
     (st.overrides||[]).forEach(function(o){
       if (o && o.date && o.dish && isChicken(st, String(o.dish).trim())) chickenLocks.push(parseISO(o.date));
     });
+    // same kind on back-to-back days: checks what's already placed on the
+    // day before / same day, and locked meals on the day after
+    var avoidRepeat = avoidRepeatOf(st);
+    var catsByDay = Object.create(null), lockCats = Object.create(null);
+    function markCats(map, e, name){
+      var d = map[e] = map[e] || Object.create(null);
+      dishCats(st, name).forEach(function(c){ d[c] = 1; });
+    }
+    (st.overrides||[]).forEach(function(o){
+      if (o && o.date && o.dish) markCats(lockCats, parseISO(o.date), String(o.dish).trim());
+    });
+    function catClash(name, e){
+      if (!avoidRepeat) return false;
+      var cs = dishCats(st, name);
+      for (var d = e - 1; d <= e + 1; d++){
+        var a = catsByDay[d], l = lockCats[d];
+        for (var i=0; i<cs.length; i++){ if ((a && a[cs[i]]) || (l && l[cs[i]])) return true; }
+      }
+      return false;
+    }
     var lastChicken = null;
     function chickenTooSoon(name, e){
       if (chickenGap < 2 || !isChicken(st, name)) return false;
@@ -858,21 +915,27 @@
           final = String(ov.dish).trim(); isOv = true;
         } else if (fromQueue && dishes.length){
           while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
-          var pick = -1, fallback = -1;
+          // best candidate that passes every rule; if none does, give up the
+          // softer rules first (10-day repeat, then same-kind-in-a-row),
+          // never the chicken spacing unless nothing is left at all
+          var pick = -1, okKind = -1, okChicken = -1;
           for (var b=0; b<buffer.length; b++){
             var cand = buffer[b];
             var lp2 = lastPlaced[cand];
             if (chickenTooSoon(cand, e)) continue;
-            if (fallback === -1) fallback = b;
+            if (okChicken === -1) okChicken = b;
+            if (catClash(cand, e)) continue;
+            if (okKind === -1) okKind = b;
             if (nearLock(cand, e)) continue;
             if (lp2 !== undefined && e - lp2 < 10) continue;
             pick = b; break;
           }
-          if (pick === -1) pick = fallback !== -1 ? fallback : 0;
+          if (pick === -1) pick = okKind !== -1 ? okKind : okChicken !== -1 ? okChicken : 0;
           final = buffer.splice(pick, 1)[0];
         }
         if (final) lastPlaced[final] = e;
         if (final && isChicken(st, final)) lastChicken = e;
+        if (final) markCats(catsByDay, e, final);
         if (past && !isOv && hist[iso + "|" + meal] != null) final = hist[iso + "|" + meal];
         if (e >= from){
           slots.push({
@@ -1026,10 +1089,10 @@
     return groupByDate(slots).map(function(daySlots){
       var s0 = daySlots[0];
       var isWeekend = isOffDay(state, s0.epoch);
-      var holiday = isHoliday(state, s0.dateISO);
+      var holiday = holidayName(state, s0.dateISO);
       var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
         dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') +
-        (holiday ? ' <span class="lock-pill">🎌 휴일</span>' : '') + '</div>';
+        (holiday ? ' <span class="lock-pill">🎌 ' + esc(holiday) + '</span>' : '') + '</div>';
       daySlots.forEach(function(s){
         html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
@@ -1442,6 +1505,7 @@
     document.getElementById("inWeeks").value = state.weeks;
     document.getElementById("inChickenGap").value = String(chickenGapOf(state));
     var chickens = (state.dishes||[]).filter(function(n){ return isChicken(state, n); });
+    document.getElementById("inAvoidRepeat").checked = avoidRepeatOf(state);
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
       ". 자동배정에서만 간격을 지키고, 직접 고정한 메뉴는 그대로 둬요.";
 
@@ -1458,6 +1522,9 @@
       html += '<div class="dish-card">' +
         '<div class="dish-head" data-idx="' + idx + '">' +
           '<span class="name">' + esc(name) + '</span>' +
+          '<span class="pref-badge">' + dishCats(state, name).map(function(k){
+            var c = DISH_CATS.filter(function(x){ return x.key === k; })[0]; return c ? c.icon : "";
+          }).join("") + '</span>' +
           (pv === "often" ? '<span class="pref-badge">⭐자주</span>' : pv === "rare" ? '<span class="pref-badge">💤가끔</span>' : '') +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
@@ -1549,13 +1616,18 @@
     // aren't shown — only today and later matter here
     var hHost = document.getElementById("holidayList");
     var todayISO0 = toISO(currentToday);
-    var hols = (state.holidays || []).filter(function(d){ return d >= todayISO0; });
+    var limitISO = toISO(currentToday + 120);
+    var hols = uniqueDishes((state.holidays || []).concat(Object.keys(PUBLIC_HOLIDAYS)))
+      .filter(function(d){ return d >= todayISO0 && (d <= limitISO || (state.holidays || []).indexOf(d) !== -1); })
+      .sort();
     hHost.innerHTML = hols.length ? hols.map(function(d){
-      return '<div class="override-row"><div class="info"><b>' + dispDate(parseISO(d)) + '</b> <span>🎌 휴일 · 점심·저녁</span></div>' +
-        '<button class="btn danger" type="button" data-unhol="' + d + '">해제</button></div>';
-    }).join("") : '<p class="hint">없어요.</p>';
-    Array.prototype.forEach.call(hHost.querySelectorAll("[data-unhol]"), function(b){
-      b.onclick = function(){ setHoliday(b.getAttribute("data-unhol"), false); scheduleSave(); renderAll(); };
+      var on = isHoliday(state, d);
+      return '<div class="override-row"><div class="info"><b>' + dispDate(parseISO(d)) + '</b> <span>🎌 ' + esc(PUBLIC_HOLIDAYS[d] || "직접 지정") +
+        (on ? '' : ' · <b>평일로 쓰는 중</b>') + '</span></div>' +
+        '<button class="btn' + (on ? ' danger' : '') + '" type="button" data-hol="' + d + '" data-on="' + (on ? 0 : 1) + '">' + (on ? '해제' : '다시 휴일로') + '</button></div>';
+    }).join("") : '<p class="hint">다가오는 휴일이 없어요.</p>';
+    Array.prototype.forEach.call(hHost.querySelectorAll("[data-hol]"), function(b){
+      b.onclick = function(){ setHoliday(b.getAttribute("data-hol"), b.getAttribute("data-on") === "1"); scheduleSave(); renderAll(); };
     });
 
     var ovHost = document.getElementById("overrideList");
@@ -1586,28 +1658,37 @@
   }
   function setHoliday(dateISO, on){
     var list = (state.holidays || []).filter(function(d){ return d !== dateISO; });
-    if (on) list.push(dateISO);
+    var off = (state.holidayOff || []).filter(function(d){ return d !== dateISO; });
+    if (PUBLIC_HOLIDAYS[dateISO]){ if (!on) off.push(dateISO); }  // auto: just un-cancel / cancel it
+    else if (on) list.push(dateISO);
     state.holidays = list.sort();
+    state.holidayOff = off.sort();
   }
   function removeLock(dateISO, meal){
     state.overrides = (state.overrides || []).filter(function(o){ return !(o.date === dateISO && o.meal === meal); });
   }
   // Dishes that fit this slot: not on the plan within 10 days either side,
-  // no chicken too close, not the current one. Ordered by a stable random
+  // no chicken too close, not the same kind as the day before/after, not
+  // the current one. Ordered by a stable random
   // per slot (자주/가끔 preferences count), so the list doesn't jump around.
   function suggestDishes(e, meal, current){
     var win = generatePlan(state, currentToday, {from: e - 10, to: e + 10});
-    var gap = chickenGapOf(state), near = Object.create(null), chickenNear = false;
+    var gap = chickenGapOf(state), near = Object.create(null), chickenNear = false, nearCats = Object.create(null);
     win.forEach(function(s){
       if (s.epoch === e && s.meal === meal) return;
       if (!s.final) return;
       near[s.final] = 1;
       if (gap >= 2 && isChicken(state, s.final) && Math.abs(s.epoch - e) < gap) chickenNear = true;
+      if (Math.abs(s.epoch - e) <= 1) dishCats(state, s.final).forEach(function(c){ nearCats[c] = 1; });
     });
+    function kindClash(n){
+      if (!avoidRepeatOf(state)) return false;
+      return dishCats(state, n).some(function(c){ return nearCats[c]; });
+    }
     var pref = state.dishPref || {};
     var slotHash = hash32(toISO(e) + "|" + meal);
     var all = uniqueDishes(state.dishes).filter(function(n){ return n !== current && !NOT_A_DISH.test(n); });
-    var good = all.filter(function(n){ return !near[n] && !(chickenNear && isChicken(state, n)); });
+    var good = all.filter(function(n){ return !near[n] && !(chickenNear && isChicken(state, n)) && !kindClash(n); });
     var list = good.length >= 3 ? good : all;
     return list.map(function(n){ return {n: n, sc: prefWeight(pref[n]) * rand01(state.seed || 1, slotHash, hash32(n))}; })
       .sort(function(a, b){ return a.sc - b.sc; })
@@ -1653,8 +1734,20 @@
     }
     overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
     overlay.querySelector("#msClose").onclick = close;
+    // 외식/배달: pick what kind it was, so home menus around it don't repeat it
     Array.prototype.forEach.call(overlay.querySelectorAll("[data-quick]"), function(b){
-      b.onclick = function(){ apply(b.getAttribute("data-quick")); };
+      b.onclick = function(){
+        var kind = b.getAttribute("data-quick");
+        var box = overlay.querySelector("#msCands");
+        box.hidden = false;
+        box.innerHTML = '<div class="hint">' + kind + ' 메뉴가 뭐예요? 앞뒤 날에 같은 종류가 안 나오게 할게요.</div>' +
+          '<div class="cand-row">' + DISH_CATS.map(function(c){
+            return '<button type="button" data-kind="' + esc(kind + "(" + c.label + ")") + '">' + c.icon + ' ' + c.label + '</button>';
+          }).join("") + '<button type="button" data-kind="' + kind + '">🍽 기타·모름</button></div>';
+        Array.prototype.forEach.call(box.querySelectorAll("[data-kind]"), function(k){
+          k.onclick = function(){ apply(k.getAttribute("data-kind")); };
+        });
+      };
     });
     overlay.querySelector("#msType").onclick = function(){ openLockSheet(dateISO, meal); };
     if (dish) overlay.querySelector("#msIng").onclick = function(){ openIngredientSheet(dish); };
@@ -1791,6 +1884,11 @@
   };
 
   // settings field wiring
+  document.getElementById("inAvoidRepeat").onchange = function(e){
+    state.avoidRepeat = !!e.target.checked;
+    scheduleSave(); renderAll();
+    showToast(state.avoidRepeat ? "같은 종류는 연달아 안 나와요" : "종류 연속 제한을 껐어요");
+  };
   document.getElementById("inChickenGap").onchange = function(e){
     state.chickenGap = parseInt(e.target.value,10) || 0;
     scheduleSave(); renderAll();
