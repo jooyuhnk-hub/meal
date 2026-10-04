@@ -460,6 +460,12 @@
     </div>
 
     <div class="settings-block">
+      <h3>휴일로 지정한 날</h3>
+      <p class="hint" style="margin-bottom:6px;">평일이 공휴일이면 식단에서 그 날 저녁을 누르고 "🎌 이 날 휴일로"를 누르세요. 점심·저녁이 주말처럼 둘 다 나와요.</p>
+      <div id="holidayList"></div>
+    </div>
+
+    <div class="settings-block">
       <h3>고정해둔 메뉴</h3>
       <div id="overrideList"></div>
       <p class="hint" id="overrideEmpty">아직 고정해둔 메뉴가 없어요.</p>
@@ -760,6 +766,11 @@
   }
   // 자주 = picked noticeably more often, 가끔 = less often (score stays < 2)
   function prefWeight(p){ return p === "often" ? 0.6 : p === "rare" ? 1.8 : 1; }
+  // A weekday marked as a holiday (state.holidays, ISO dates) plans like a
+  // weekend: lunch and dinner. Adding one takes an extra meal from the
+  // queue, so the menus after it slide back by one, same as everywhere else.
+  function isHoliday(st, iso){ return (st.holidays || []).indexOf(iso) !== -1; }
+  function isOffDay(st, e){ return isoWeekdayMon1(e) >= 6 || isHoliday(st, toISO(e)); }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
@@ -830,7 +841,7 @@
     var slots = [];
     for (var e=Math.min(genStart, from); e<=end; e++){
       var iso = toISO(e);
-      var weekend = isoWeekdayMon1(e) >= 6;
+      var weekend = isOffDay(st, e);
       var past = e < today;
       var planned = e >= genStart; // days before the anchor were never planned
       var meals = [];
@@ -1014,9 +1025,11 @@
   function dayCardsHTML(slots){
     return groupByDate(slots).map(function(daySlots){
       var s0 = daySlots[0];
-      var isWeekend = isoWeekdayMon1(s0.epoch) >= 6;
+      var isWeekend = isOffDay(state, s0.epoch);
+      var holiday = isHoliday(state, s0.dateISO);
       var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
-        dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') + '</div>';
+        dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') +
+        (holiday ? ' <span class="lock-pill">🎌 휴일</span>' : '') + '</div>';
       daySlots.forEach(function(s){
         html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
@@ -1131,7 +1144,7 @@
     for (var e=gridStart; e<=gridEnd; e++){
       if (e < first || e > last){ html += '<div class="mcell out"></div>'; continue; }
       var iso = toISO(e);
-      var cls = "mcell" + (isoWeekdayMon1(e) >= 6 ? " weekend" : "") + (e === today ? " today" : "") + (e < today ? " past" : "");
+      var cls = "mcell" + (isOffDay(state, e) ? " weekend" : "") + (e === today ? " today" : "") + (e < today ? " past" : "");
       html += '<div class="' + cls + '" data-epoch="' + e + '"><div class="mday">' + fromEpochDay(e).d + '</div>';
       (byDate[iso] || []).forEach(function(s){
         if (s.isPast && !s.final) return; // nothing recorded for that day
@@ -1534,6 +1547,17 @@
 
     // past locks stay in the data (they keep the queue order stable) but
     // aren't shown — only today and later matter here
+    var hHost = document.getElementById("holidayList");
+    var todayISO0 = toISO(currentToday);
+    var hols = (state.holidays || []).filter(function(d){ return d >= todayISO0; });
+    hHost.innerHTML = hols.length ? hols.map(function(d){
+      return '<div class="override-row"><div class="info"><b>' + dispDate(parseISO(d)) + '</b> <span>🎌 휴일 · 점심·저녁</span></div>' +
+        '<button class="btn danger" type="button" data-unhol="' + d + '">해제</button></div>';
+    }).join("") : '<p class="hint">없어요.</p>';
+    Array.prototype.forEach.call(hHost.querySelectorAll("[data-unhol]"), function(b){
+      b.onclick = function(){ setHoliday(b.getAttribute("data-unhol"), false); scheduleSave(); renderAll(); };
+    });
+
     var ovHost = document.getElementById("overrideList");
     var todayISO = toISO(currentToday);
     var overrides = (state.overrides||[]).filter(function(o){ return o && o.date >= todayISO; });
@@ -1559,6 +1583,11 @@
     var idx = state.overrides.findIndex(function(o){ return o.date === dateISO && o.meal === meal; });
     var rec = {id: idx >= 0 ? state.overrides[idx].id : ("ov" + Date.now()), date: dateISO, meal: meal, dish: dish};
     if (idx >= 0) state.overrides[idx] = rec; else state.overrides.push(rec);
+  }
+  function setHoliday(dateISO, on){
+    var list = (state.holidays || []).filter(function(d){ return d !== dateISO; });
+    if (on) list.push(dateISO);
+    state.holidays = list.sort();
   }
   function removeLock(dateISO, meal){
     state.overrides = (state.overrides || []).filter(function(o){ return !(o.date === dateISO && o.meal === meal); });
@@ -1590,6 +1619,8 @@
     var dish = slot ? slot.final : "";
     var locked = slot && slot.isOverride;
     var past = e < currentToday;
+    var weekday = isoWeekdayMon1(e) < 6;
+    var holiday = isHoliday(state, dateISO);
     var host = document.getElementById("sheetHost");
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
@@ -1607,6 +1638,8 @@
           '<button class="btn" type="button" id="msType">✏️ 직접 입력</button>' +
           (dish ? '<button class="btn" type="button" id="msIng">🥕 재료 보기</button>' : '<span></span>') +
           (locked ? '<button class="btn danger wide" type="button" id="msUnlock">🔓 고정 해제 (자동 메뉴로)</button>' : '') +
+          (weekday && !past ? '<button class="btn wide" type="button" id="msHoliday">' +
+            (holiday ? '🎌 휴일 해제 (저녁만)' : '🎌 이 날 휴일로 (점심·저녁 둘 다)') + '</button>' : '') +
         '</div>' +
         '<div class="actions"><button class="btn" type="button" id="msClose">닫기</button></div>' +
       '</div>';
@@ -1625,6 +1658,12 @@
     });
     overlay.querySelector("#msType").onclick = function(){ openLockSheet(dateISO, meal); };
     if (dish) overlay.querySelector("#msIng").onclick = function(){ openIngredientSheet(dish); };
+    var hBtn = overlay.querySelector("#msHoliday");
+    if (hBtn) hBtn.onclick = function(){
+      setHoliday(dateISO, !holiday);
+      close(); scheduleSave(); renderAll();
+      showToast(holiday ? dispDate(e) + " 휴일을 해제했어요" : dispDate(e) + " 휴일! 점심도 추가했어요 🎌");
+    };
     if (locked){
       overlay.querySelector("#msUnlock").onclick = function(){
         removeLock(dateISO, meal);
