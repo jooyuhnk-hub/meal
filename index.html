@@ -378,6 +378,11 @@
     background:var(--bg);color:var(--ink);font-size:14px;margin-bottom:10px;
   }
   .pref-badge{font-size:12px;flex:none;}
+  .stars{display:flex;align-items:center;gap:2px;margin:8px 0 2px;}
+  .stars .lbl{font-size:12.5px;color:var(--ink-dim);font-weight:600;margin-right:6px;}
+  .stars button{border:none;background:none;cursor:pointer;font-size:26px;line-height:1;padding:2px 3px;color:var(--surface-border);}
+  .stars button.on{color:#f2b01e;}
+  .star-badge{font-size:12px;color:#c98a00;font-weight:700;flex:none;}
 </style>
 </head>
 <body>
@@ -1562,11 +1567,12 @@
           }).join("") + '</span>' +
           (pv === "often" ? '<span class="pref-badge">⭐자주</span>' : pv === "rare" ? '<span class="pref-badge">💤가끔</span>' : '') +
           (dishWeight(state, name) === "light" ? '<span class="pref-badge">🥗</span>' : dishWeight(state, name) === "heavy" ? '<span class="pref-badge">🍖</span>' : '') +
+          (ratingOf(name) ? '<span class="star-badge">★' + ratingOf(name) + '</span>' : '') +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
         '</div>';
       if (open){
-        html += '<div class="dish-body">' +
+        html += '<div class="dish-body">' + starsHTML(name) +
           '<div class="seg" style="margin-top:10px;">' +
             [["often","⭐ 자주"],["normal","보통"],["rare","💤 가끔"]].map(function(o){
               return '<button type="button" data-pref="' + o[0] + '" data-pidx="' + idx + '" class="' + (pv === o[0] ? "on" : "") + '">' + o[1] + '</button>';
@@ -1591,6 +1597,7 @@
       html += '</div>';
     });
     dishHost.innerHTML = html || '<p class="hint">' + (q ? "검색 결과가 없어요." : "아직 요리가 없어요.") + '</p>';
+    wireStars(dishHost);
     Array.prototype.forEach.call(dishHost.querySelectorAll("[data-weight]"), function(b){
       b.onclick = function(){
         var name = state.dishes[parseInt(b.getAttribute("data-widx"),10)];
@@ -1700,6 +1707,37 @@
     });
   }
 
+  // ---------- star ratings (just a record; doesn't change how often a dish comes up) ----------
+  function ratingOf(name){ return (state.ratings || {})[name] || 0; }
+  function setRating(name, n){
+    state.ratings = state.ratings || {};
+    if (state.ratings[name] === n) delete state.ratings[name]; // tap the same star again to clear
+    else state.ratings[name] = n;
+  }
+  function starsHTML(name){
+    var r = ratingOf(name), h = '<div class="stars" data-stars="' + esc(name) + '"><span class="lbl">별점</span>';
+    for (var i=1; i<=5; i++) h += '<button type="button" data-star="' + i + '" class="' + (i <= r ? "on" : "") + '" aria-label="' + i + '점">★</button>';
+    return h + '</div>';
+  }
+  // tapping a star saves right away and repaints just that row (no sheet reload)
+  function wireStars(root){
+    Array.prototype.forEach.call(root.querySelectorAll("[data-stars]"), function(row){
+      var name = row.getAttribute("data-stars");
+      Array.prototype.forEach.call(row.querySelectorAll("[data-star]"), function(b){
+        b.onclick = function(ev){
+          ev.stopPropagation();
+          setRating(name, parseInt(b.getAttribute("data-star"),10));
+          var r = ratingOf(name);
+          Array.prototype.forEach.call(row.querySelectorAll("[data-star]"), function(x){
+            x.classList.toggle("on", parseInt(x.getAttribute("data-star"),10) <= r);
+          });
+          scheduleSave(); renderAll();
+          showToast(r ? '"' + name + '" ★' + r : '"' + name + '" 별점을 지웠어요');
+        };
+      });
+    });
+  }
+
   // ---------- quick meal sheet (tap a meal) ----------
   function setLock(dateISO, meal, dish){
     state.overrides = state.overrides || [];
@@ -1762,6 +1800,7 @@
       '<div class="sheet">' +
         '<h3>' + dispDate(e) + ' ' + MEAL_LABEL[meal] + ' · ' + (dish ? esc(dish) : (past ? "기록 없음" : "미정")) + (locked ? ' 🔒' : '') + '</h3>' +
         '<p class="sub">' + (past ? "지난 끼니예요. 바꾸면 기록이 바뀌어요." : "바꾸면 원래 메뉴는 다음 끼니로 밀려요.") + '</p>' +
+        (dish && (state.dishes || []).indexOf(dish) !== -1 ? starsHTML(dish) + '<div style="height:8px"></div>' : '') +
         '<div class="act-grid">' +
           '<button class="btn" type="button" data-quick="외식">🍽 외식</button>' +
           '<button class="btn" type="button" data-quick="배달">🛵 배달</button>' +
@@ -1804,6 +1843,7 @@
     });
     overlay.querySelector("#msType").onclick = function(){ openLockSheet(dateISO, meal); };
     if (dish) overlay.querySelector("#msIng").onclick = function(){ openIngredientSheet(dish); };
+    wireStars(overlay);
     var hBtn = overlay.querySelector("#msHoliday");
     if (hBtn) hBtn.onclick = function(){
       setHoliday(dateISO, !holiday);
