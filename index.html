@@ -794,13 +794,17 @@
     {key:"japanese", label:"일식", icon:"🍣"}
   ];
   var OUT_RE = /^(외식|배달)\((.+)\)$/;
+  // 외식 and 배달 both count as "eating out" (kind "eatout"), so an auto 배달
+  // never lands the day before/after a 외식 (or another 배달), or on the same day.
+  var EATOUT_RE = /^(외식|배달)/;
   function dishCats(st, name){
     name = String(name || "");
     var out = name.match(OUT_RE);
     if (out){
       var c = DISH_CATS.filter(function(x){ return x.label === out[2]; })[0];
-      return c ? [c.key] : [];
+      return c ? [c.key, "eatout"] : ["eatout"];
     }
+    if (EATOUT_RE.test(name)) return ["eatout"];
     var first = ((st.ingredients || {})[name] || [])[0] || "";
     return DISH_CATS.filter(function(c){
       return (c.re && c.re.test(name)) || (c.ing && first && c.ing.test(first));
