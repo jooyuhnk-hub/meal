@@ -437,6 +437,17 @@
         </select></div>
       </div>
       <p class="hint" id="chickenHint" style="margin-bottom:12px;"></p>
+      <div class="field-row"><label>외식·배달</label>
+        <div class="kdate"><select id="inEatoutGap">
+          <option value="0">제한 없음</option>
+          <option value="2">2일에 한 번</option>
+          <option value="3">3일에 한 번</option>
+          <option value="4">4일에 한 번</option>
+          <option value="5">5일에 한 번</option>
+          <option value="7">일주일에 한 번</option>
+        </select></div>
+      </div>
+      <p class="hint" style="margin-bottom:12px;">외식이나 배달을 한 날 앞뒤로 이 간격 안에는 배달이 자동으로 안 나와요. 직접 고정한 외식·배달은 그대로 둬요.</p>
       <label class="check"><input type="checkbox" id="inAvoidRepeat"> 같은 종류(닭·돼지·소·면 등)는 연달아 안 나오게</label>
       <p class="hint" style="margin:-6px 0 12px;">어제나 내일과 같은 종류는 자동 메뉴에서 피해요. 외식·배달도 종류를 고르면 함께 따져요.</p>
       <p class="hint" style="margin-bottom:12px;">식단표는 항상 오늘 날짜부터 자동으로 보여줘요. 지난 날짜는 알아서 사라져요.</p>
@@ -848,6 +859,8 @@
   }
   function holidayName(st, iso){ return isHoliday(st, iso) ? (PUBLIC_HOLIDAYS[iso] || "휴일") : ""; }
   function isOffDay(st, e){ return isoWeekdayMon1(e) >= 6 || isHoliday(st, toISO(e)); }
+  function isEatout(st, name){ return dishCats(st, name).indexOf("eatout") !== -1; }
+  function eatoutGapOf(st){ return st.eatoutGap == null ? 3 : (parseInt(st.eatoutGap,10) || 0); }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
@@ -900,6 +913,20 @@
         var a = catsByDay[d], l = lockCats[d];
         for (var i=0; i<cs.length; i++){ if ((a && a[cs[i]]) || (l && l[cs[i]])) return true; }
       }
+      return false;
+    }
+    // eating-out spacing: an auto 배달 needs eatoutGap days since the last
+    // 외식/배달, and can't land within that range of a locked one
+    var eatoutGap = eatoutGapOf(st);
+    var eatoutLocks = [];
+    (st.overrides||[]).forEach(function(o){
+      if (o && o.date && o.dish && isEatout(st, String(o.dish).trim())) eatoutLocks.push(parseISO(o.date));
+    });
+    var lastEatout = null;
+    function eatoutTooSoon(name, e){
+      if (eatoutGap < 2 || !isEatout(st, name)) return false;
+      if (lastEatout !== null && e - lastEatout < eatoutGap) return true;
+      for (var q=0; q<eatoutLocks.length; q++){ if (Math.abs(eatoutLocks[q]-e) < eatoutGap) return true; }
       return false;
     }
     var lastChicken = null;
@@ -964,6 +991,7 @@
             var lp2 = lastPlaced[cand];
             var sc = [
               chickenTooSoon(cand, e) ? 1 : 0,
+              eatoutTooSoon(cand, e) ? 1 : 0,
               catClash(cand, e) ? 1 : 0,
               (nearLock(cand, e) || (lp2 !== undefined && e - lp2 < 10)) ? 1 : 0,
               meal === "lunch" ? lunchPenalty(st, cand) : 0
@@ -979,6 +1007,7 @@
         }
         if (final) lastPlaced[final] = e;
         if (final && isChicken(st, final)) lastChicken = e;
+        if (final && isEatout(st, final)) lastEatout = e;
         if (final) markCats(catsByDay, e, final);
         if (past && !isOv && hist[iso + "|" + meal] != null) final = hist[iso + "|" + meal];
         if (e >= from){
@@ -1548,6 +1577,7 @@
   function renderSettings(){
     document.getElementById("inWeeks").value = state.weeks;
     document.getElementById("inChickenGap").value = String(chickenGapOf(state));
+    document.getElementById("inEatoutGap").value = String(eatoutGapOf(state));
     var chickens = (state.dishes||[]).filter(function(n){ return isChicken(state, n); });
     document.getElementById("inAvoidRepeat").checked = avoidRepeatOf(state);
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
@@ -1985,6 +2015,11 @@
     state.avoidRepeat = !!e.target.checked;
     scheduleSave(); renderAll();
     showToast(state.avoidRepeat ? "같은 종류는 연달아 안 나와요" : "종류 연속 제한을 껐어요");
+  };
+  document.getElementById("inEatoutGap").onchange = function(e){
+    state.eatoutGap = parseInt(e.target.value,10) || 0;
+    scheduleSave(); renderAll();
+    showToast(state.eatoutGap ? ("외식·배달은 " + state.eatoutGap + "일에 한 번만 자동으로 나와요") : "외식·배달 간격 제한을 껐어요");
   };
   document.getElementById("inChickenGap").onchange = function(e){
     state.chickenGap = parseInt(e.target.value,10) || 0;
