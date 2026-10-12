@@ -383,6 +383,19 @@
   .stars button{border:none;background:none;cursor:pointer;font-size:26px;line-height:1;padding:2px 3px;color:var(--surface-border);}
   .stars button.on{color:#f2b01e;}
   .star-badge{font-size:12px;color:#c98a00;font-weight:700;flex:none;}
+  .inv-group{border:1px solid var(--surface-border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;}
+  .inv-group h2{font-size:14px;padding:9px 14px;background:var(--surface);color:var(--ink);}
+  .inv-group.warn h2{background:var(--warn-bg);color:var(--warn-ink);}
+  .inv-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--surface-border);cursor:pointer;}
+  .inv-row:active{background:var(--surface2);}
+  .inv-row .nm{flex:1;font-size:14.5px;}
+  .inv-row .amt{font-size:13.5px;color:var(--ink-dim);}
+  .exp{font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 8px;flex:none;background:var(--surface2);color:var(--ink-dim);}
+  .exp.soon{background:var(--warn-bg);color:var(--warn-ink);}
+  .exp.over{background:#c23b3b;color:#fff;}
+  .inv-log{font-size:12.5px;color:var(--ink-dim);padding:8px 14px;border-top:1px solid var(--surface-border);display:flex;gap:8px;align-items:center;}
+  .inv-log span{flex:1;line-height:1.45;}
+  .tc-warn{font-size:12.5px;color:var(--warn-ink);margin-top:6px;}
 </style>
 </head>
 <body>
@@ -395,6 +408,7 @@
   <nav class="tabs">
     <button data-tab="plan" class="active">이번 식단</button>
     <button data-tab="shop">장보기</button>
+    <button data-tab="fridge" id="tabFridge">냉장고</button>
     <button data-tab="settings">설정</button>
   </nav>
 </header>
@@ -420,6 +434,19 @@
       <button type="button" data-shop="meals">끼니별 재료</button>
     </div>
     <div id="shopList"></div>
+  </section>
+
+  <section id="tab-fridge" hidden>
+    <div class="settings-block">
+      <h3>🧊 냉장고에 넣기</h3>
+      <input type="text" class="search" id="inInv" placeholder="예: 대파 3대, 두부 1모, 돼지고기 600g">
+      <div class="field-row"><label>유통기한</label><div id="invExpHost" style="flex:1;"></div></div>
+      <label class="check"><input type="checkbox" id="inInvNoExp"> 유통기한 없음 (양념·냉동 등)</label>
+      <button class="btn primary block" id="btnInvAdd" type="button">넣기</button>
+      <p class="hint" style="margin-top:8px;">쉼표로 여러 개를 한 번에 넣을 수 있어요. 끼니가 지나면 그 메뉴 재료만큼 자동으로 빠져요(이름과 단위가 같은 것만). 바로 빼려면 식단에서 끼니를 누르고 "🍳 해먹었어요"를 누르세요.</p>
+    </div>
+    <div id="invList"></div>
+    <div id="invLog"></div>
   </section>
 
   <section id="tab-settings" hidden>
@@ -1083,7 +1110,7 @@
   // This is what removed the visible lag on phones (three full DOM rebuilds
   // per tap, most of them for tabs no one was looking at).
   var lastSlots = null;
-  var tabDirty = {plan:true, shop:true, settings:true};
+  var tabDirty = {plan:true, shop:true, settings:true, fridge:true};
   var currentToday = todayEpochLocal();
 
   function renderAll(){
@@ -1093,8 +1120,11 @@
       // can't outrank the shared copy that's about to arrive
       if (fsDoc) scheduleSave(); else saveLocal();
     }
+    if (autoDeduct(currentToday)){ if (fsDoc) scheduleSave(); else saveLocal(); }
     lastSlots = generatePlan(state, currentToday);
-    tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true;
+    tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true; tabDirty.fridge = true;
+    var warnN = expiringSoon().length;
+    document.getElementById("tabFridge").textContent = "냉장고" + (warnN ? " ⚠" + warnN : "");
     renderStatusBar();
     renderActiveTab();
   }
@@ -1122,6 +1152,7 @@
     if (activeTab==="plan" && tabDirty.plan){ renderPlanTab(); tabDirty.plan=false; }
     else if (activeTab==="shop" && tabDirty.shop){ renderShop(lastSlots); tabDirty.shop=false; }
     else if (activeTab==="settings" && tabDirty.settings){ renderSettings(); tabDirty.settings=false; }
+    else if (activeTab==="fridge" && tabDirty.fridge){ renderFridge(); tabDirty.fridge=false; }
   }
 
   function renderStatusBar(){
@@ -1200,6 +1231,9 @@
       (tomorrow.length ? '<div class="tc-next">내일 ' + tomorrow.map(function(s){
         return MEAL_LABEL[s.meal] + ' <b>' + (s.final ? esc(s.final) : "미정") + '</b>';
       }).join(" · ") + '</div>' : '') +
+      (expiringSoon().length ? '<div class="tc-warn">🧊 빨리 먹어야 해요: ' + expiringSoon().slice(0, 4).map(function(it){
+        var d = daysLeft(it); return esc(it.name) + '(' + (d < 0 ? "지남" : d === 0 ? "오늘" : "D-" + d) + ')';
+      }).join(", ") + '</div>' : '') +
       '</div>';
     Array.prototype.forEach.call(host.querySelectorAll(".tc-meal"), function(row){
       row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
@@ -1433,7 +1467,11 @@
         items.forEach(function(it){
           html += '<label class="si' + (done[it.name] ? " done" : "") + '">' +
             '<input type="checkbox" data-wk="' + wkey + '" data-item="' + esc(it.name) + '"' + (done[it.name] ? " checked" : "") + '>' +
-            '<span class="t">' + esc(it.name) + (it.amount ? ' ' + esc(it.amount) : '') + '<small>' + it.dishes.map(esc).join(", ") + '</small></span>' +
+            '<span class="t">' + esc(it.name) + (it.amount ? ' ' + esc(it.amount) : '') + '<small>' + it.dishes.map(esc).join(", ") +
+              (function(){
+                var have = inventory().filter(function(x){ return invMatches(x.name, it.name); });
+                return have.length ? ' · 🧊 냉장고에 ' + have.map(function(x){ return esc(amountText(x)); }).join("+") + ' 있음' : '';
+              })() + '</small></span>' +
             '<button class="home" type="button" data-home="' + esc(it.name) + '" title="집에 늘 있는 재료로">🏠</button>' +
           '</label>';
         });
@@ -1772,6 +1810,212 @@
     });
   }
 
+  // ---------- fridge: what's at home, expiry, and deducting cooked meals ----------
+  // state.inventory: [{id, name, qty, unit, exp: ISO or ""}]
+  // state.consumed:  {"ISO|meal": [log entries] | "skip"} — what a meal took
+  //                  out of the fridge, so it happens once and can be undone
+  // state.invStart:  first day the fridge was used; meals before it are never
+  //                  deducted
+  var UNIT_SAME = {"큰술":"T","작은술":"t"};
+  function normU(u){ u = String(u || ""); return UNIT_SAME[u] || u; }
+  function bareName(n){ return String(n || "").replace(/\(.*?\)/g, "").replace(/\s+/g, ""); }
+  function invMatches(invName, recipeName){
+    var a = bareName(invName), b = bareName(recipeName);
+    if (!a || !b) return false;
+    return a === b || (a.length >= 2 && b.indexOf(a) !== -1);
+  }
+  function unitsMatch(invUnit, recipeUnit){
+    var a = normU(invUnit), b = normU(recipeUnit);
+    return a === b || (!a && b === "개") || (a === "개" && !b);
+  }
+  function inventory(){ return state.inventory || (state.inventory = []); }
+  function daysLeft(item){ return item.exp ? parseISO(item.exp) - currentToday : null; }
+  function expBadge(item){
+    var d = daysLeft(item);
+    if (d === null) return '<span class="exp">기한 없음</span>';
+    if (d < 0) return '<span class="exp over">' + (-d) + '일 지남</span>';
+    if (d === 0) return '<span class="exp soon">오늘까지</span>';
+    return '<span class="exp' + (d <= 3 ? " soon" : "") + '">D-' + d + '</span>';
+  }
+  function amountText(item){ return fmtQty(item.qty) + (item.unit || ""); }
+  function addInventory(name, qty, unit, exp){
+    var list = inventory();
+    var same = list.filter(function(it){ return it.name === name && normU(it.unit) === normU(unit) && (it.exp || "") === (exp || ""); })[0];
+    if (same) same.qty += qty;
+    else list.push({id: "inv" + Date.now() + Math.floor(Math.random()*1000), name: name, qty: qty, unit: unit, exp: exp || ""});
+    if (!state.invStart) state.invStart = toISO(currentToday);
+  }
+  // take one dish's ingredients out of the fridge, soonest-to-expire first
+  function deductDish(dish){
+    var log = [];
+    ((state.ingredients || {})[dish] || []).forEach(function(raw){
+      var p = parseIng(raw);
+      if (p.qty === null || !p.qty) return;
+      var need = p.qty;
+      inventory().filter(function(it){ return invMatches(it.name, p.name) && unitsMatch(it.unit, p.unit); })
+        .sort(function(a, b){ return (a.exp || "9999") < (b.exp || "9999") ? -1 : 1; })
+        .forEach(function(it){
+          if (need <= 1e-9) return;
+          var take = Math.min(it.qty, need);
+          it.qty = Math.round((it.qty - take) * 1000) / 1000;
+          need -= take;
+          log.push({id: it.id, name: it.name, unit: it.unit, exp: it.exp, qty: take});
+        });
+    });
+    state.inventory = inventory().filter(function(it){ return it.qty > 1e-9; });
+    return log;
+  }
+  function restoreLog(log){
+    (log || []).forEach(function(l){
+      var it = inventory().filter(function(x){ return x.id === l.id; })[0];
+      if (it) it.qty += l.qty;
+      else inventory().push({id: l.id, name: l.name, qty: l.qty, unit: l.unit, exp: l.exp || ""});
+    });
+  }
+  function markCooked(key, dish){
+    state.consumed = state.consumed || {};
+    state.consumed[key] = deductDish(dish);
+    pruneConsumed();
+    return state.consumed[key];
+  }
+  function undoCooked(key){
+    state.consumed = state.consumed || {};
+    var log = state.consumed[key];
+    if (Array.isArray(log)) restoreLog(log);
+    state.consumed[key] = "skip"; // don't auto-deduct it again
+  }
+  function pruneConsumed(){
+    var cut = toISO(currentToday - 60);
+    Object.keys(state.consumed || {}).forEach(function(k){ if (k < cut) delete state.consumed[k]; });
+  }
+  // every finished meal since the fridge was started takes its ingredients
+  // out once. Uses the recorded history, so it matches what was on the plan.
+  function autoDeduct(today){
+    if (!state.invStart || !inventory().length) return false;
+    var hist = state.history || {}, todayISO = toISO(today), changed = false;
+    state.consumed = state.consumed || {};
+    Object.keys(hist).sort().forEach(function(key){
+      var d = key.split("|")[0];
+      if (d < state.invStart || d >= todayISO || state.consumed[key] !== undefined) return;
+      state.consumed[key] = deductDish(hist[key]);
+      changed = true;
+    });
+    if (changed) pruneConsumed();
+    return changed;
+  }
+  function expiringSoon(){
+    return inventory().filter(function(it){ var d = daysLeft(it); return d !== null && d <= 2; })
+      .sort(function(a, b){ return daysLeft(a) - daysLeft(b); });
+  }
+
+  var invExpWired = false;
+  function renderFridge(){
+    if (!invExpWired){
+      document.getElementById("invExpHost").innerHTML = kdateHTML("invExp", toISO(currentToday + 7));
+      kdateWire("invExp", function(){});
+      invExpWired = true;
+    }
+    var list = inventory().slice().sort(function(a, b){
+      var da = daysLeft(a), db = daysLeft(b);
+      if (da === null && db === null) return a.name < b.name ? -1 : 1;
+      if (da === null) return 1; if (db === null) return -1;
+      return da - db;
+    });
+    var groups = [
+      {t:"⚠ 유통기한 지났어요", warn:true, f:function(d){ return d !== null && d < 0; }},
+      {t:"⏰ 3일 안에 먹어야 해요", warn:true, f:function(d){ return d !== null && d >= 0 && d <= 3; }},
+      {t:"🧊 냉장고", f:function(d){ return d !== null && d > 3; }},
+      {t:"📦 유통기한 없음", f:function(d){ return d === null; }}
+    ];
+    var html = list.length ? "" : '<p class="empty-note">아직 넣은 재료가 없어요.</p>';
+    groups.forEach(function(g){
+      var items = list.filter(function(it){ return g.f(daysLeft(it)); });
+      if (!items.length) return;
+      html += '<div class="inv-group' + (g.warn ? " warn" : "") + '"><h2>' + g.t + ' (' + items.length + ')</h2>' +
+        items.map(function(it){
+          return '<div class="inv-row" data-inv="' + esc(it.id) + '"><span class="nm">' + esc(it.name) + '</span>' +
+            '<span class="amt">' + esc(amountText(it)) + '</span>' + expBadge(it) + '</div>';
+        }).join("") + '</div>';
+    });
+    document.getElementById("invList").innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll("#invList [data-inv]"), function(row){
+      row.onclick = function(){ openInvSheet(row.getAttribute("data-inv")); };
+    });
+
+    // recent deductions, newest first, each one undoable
+    var cons = state.consumed || {};
+    var keys = Object.keys(cons).filter(function(k){ return Array.isArray(cons[k]) && cons[k].length; }).sort().reverse().slice(0, 8);
+    var hist = state.history || {};
+    document.getElementById("invLog").innerHTML = keys.length ? '<div class="inv-group"><h2>🍳 최근에 빠진 재료</h2>' +
+      keys.map(function(k){
+        var p = k.split("|"), dish = hist[k] || "";
+        if (!dish){ var sl = (lastSlots || []).filter(function(x){ return x.dateISO === p[0] && x.meal === p[1]; })[0]; dish = sl ? sl.final : ""; }
+        return '<div class="inv-log"><span><b>' + dispDate(parseISO(p[0])) + ' ' + MEAL_LABEL[p[1]] + ' · ' + esc(dish) + '</b><br>' +
+          cons[k].map(function(l){ return esc(l.name) + ' ' + fmtQty(l.qty) + esc(l.unit || ""); }).join(", ") + '</span>' +
+          '<button class="btn" type="button" data-uncook="' + k + '">되돌리기</button></div>';
+      }).join("") + '</div>' : '';
+    Array.prototype.forEach.call(document.querySelectorAll("[data-uncook]"), function(b){
+      b.onclick = function(){
+        undoCooked(b.getAttribute("data-uncook"));
+        scheduleSave(); renderAll();
+        showToast("빠졌던 재료를 냉장고에 다시 넣었어요");
+      };
+    });
+  }
+
+  function openInvSheet(id){
+    var it = inventory().filter(function(x){ return x.id === id; })[0];
+    if (!it) return;
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML = '<div class="sheet"><h3>🧊 ' + esc(it.name) + '</h3>' +
+      '<div class="field"><label>이름</label><input type="text" id="ivName" value="' + esc(it.name) + '"></div>' +
+      '<div class="field"><label>남은 양</label><input type="text" id="ivAmt" value="' + esc(amountText(it)) + '" placeholder="예: 2대, 300g"></div>' +
+      '<div class="field"><label>유통기한</label><div id="ivExpHost"></div>' +
+        '<label class="check" style="margin-top:8px;"><input type="checkbox" id="ivNoExp"' + (it.exp ? '' : ' checked') + '> 유통기한 없음</label></div>' +
+      '<div class="actions"><button class="btn danger" type="button" id="ivDel">다 먹음·버림</button>' +
+        '<button class="btn" type="button" id="ivCancel">취소</button><button class="btn primary" type="button" id="ivSave">저장</button></div></div>';
+    host.innerHTML = ""; host.appendChild(overlay);
+    overlay.querySelector("#ivExpHost").innerHTML = kdateHTML("ivExp", it.exp || toISO(currentToday + 7));
+    kdateWire("ivExp", function(){});
+    function close(){ host.innerHTML = ""; }
+    overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
+    overlay.querySelector("#ivCancel").onclick = close;
+    overlay.querySelector("#ivDel").onclick = function(){
+      state.inventory = inventory().filter(function(x){ return x.id !== id; });
+      close(); scheduleSave(); renderAll();
+      showToast('"' + it.name + '" 뺐어요');
+    };
+    overlay.querySelector("#ivSave").onclick = function(){
+      var name = overlay.querySelector("#ivName").value.trim();
+      var m = overlay.querySelector("#ivAmt").value.trim().match(/^(\d+(?:\.\d+)?(?:\/\d+)?)\s*(.*)$/);
+      if (!name || !m){ showToast("이름과 양을 확인해주세요 (예: 2대)"); return; }
+      var q = m[1].indexOf("/") !== -1 ? parseFloat(m[1].split("/")[0]) / parseFloat(m[1].split("/")[1]) : parseFloat(m[1]);
+      it.name = name; it.qty = q; it.unit = m[2].trim();
+      it.exp = overlay.querySelector("#ivNoExp").checked ? "" : kdateRead("ivExp");
+      if (!(it.qty > 0)) state.inventory = inventory().filter(function(x){ return x.id !== id; });
+      close(); scheduleSave(); renderAll();
+      showToast("저장했어요");
+    };
+  }
+
+  function addInventoryFromForm(){
+    var input = document.getElementById("inInv");
+    var items = splitIngredients(input.value);
+    if (!items.length){ showToast("재료를 적어주세요 (예: 대파 3대)"); return; }
+    var exp = document.getElementById("inInvNoExp").checked ? "" : kdateRead("invExp");
+    items.forEach(function(raw){
+      var p = parseIng(raw);
+      addInventory(p.name, p.qty === null ? 1 : p.qty, p.qty === null ? "개" : p.unit, exp);
+    });
+    input.value = "";
+    scheduleSave(); renderAll();
+    showToast(items.length + "개 넣었어요 🧊");
+  }
+  document.getElementById("btnInvAdd").onclick = addInventoryFromForm;
+  document.getElementById("inInv").onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); addInventoryFromForm(); } };
+
   // ---------- quick meal sheet (tap a meal) ----------
   function setLock(dateISO, meal, dish){
     state.overrides = state.overrides || [];
@@ -1827,6 +2071,9 @@
     var past = e < currentToday;
     var weekday = isoWeekdayMon1(e) < 6;
     var holiday = isHoliday(state, dateISO);
+    // today's or a past meal with ingredients can be marked as cooked
+    var cookKey = (dish && e <= currentToday && inventory().length && ((state.ingredients || {})[dish] || []).length) ? dateISO + "|" + meal : "";
+    var cooked = cookKey ? (state.consumed || {})[cookKey] : undefined;
     var host = document.getElementById("sheetHost");
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
@@ -1845,6 +2092,8 @@
           '<button class="btn" type="button" id="msType">✏️ 직접 입력</button>' +
           (dish ? '<button class="btn" type="button" id="msIng">🥕 재료 보기</button>' : '<span></span>') +
           (locked ? '<button class="btn danger wide" type="button" id="msUnlock">🔓 고정 해제 (자동 메뉴로)</button>' : '') +
+          (cookKey ? '<button class="btn wide" type="button" id="msCook">' +
+            (Array.isArray(cooked) ? '↩ 냉장고에서 뺀 재료 되돌리기' : '🍳 해먹었어요 (냉장고에서 재료 빼기)') + '</button>' : '') +
           (weekday && !past ? '<button class="btn wide" type="button" id="msHoliday">' +
             (holiday ? '🎌 휴일 해제 (저녁만)' : '🎌 이 날 휴일로 (점심·저녁 둘 다)') + '</button>' : '') +
         '</div>' +
@@ -1878,6 +2127,18 @@
     overlay.querySelector("#msType").onclick = function(){ openLockSheet(dateISO, meal); };
     if (dish) overlay.querySelector("#msIng").onclick = function(){ openIngredientSheet(dish); };
     wireStars(overlay);
+    var cBtn = overlay.querySelector("#msCook");
+    if (cBtn) cBtn.onclick = function(){
+      if (Array.isArray(cooked)){
+        undoCooked(cookKey);
+        close(); scheduleSave(); renderAll();
+        showToast("빠졌던 재료를 냉장고에 다시 넣었어요");
+      } else {
+        var log = markCooked(cookKey, dish);
+        close(); scheduleSave(); renderAll();
+        showToast(log.length ? "냉장고에서 " + log.length + "가지 뺐어요 🍳" : "냉장고에 맞는 재료가 없었어요");
+      }
+    };
     var hBtn = overlay.querySelector("#msHoliday");
     if (hBtn) hBtn.onclick = function(){
       setHoliday(dateISO, !holiday);
@@ -1998,7 +2259,7 @@
     btn.onclick = function(){
       activeTab = btn.getAttribute("data-tab");
       document.querySelectorAll("nav.tabs button").forEach(function(b){b.classList.toggle("active", b===btn);});
-      ["plan","shop","settings"].forEach(function(t){
+      ["plan","shop","fridge","settings"].forEach(function(t){
         document.getElementById("tab-"+t).hidden = (t!==activeTab);
       });
       document.getElementById("fabLock").hidden = (activeTab!=="plan");
