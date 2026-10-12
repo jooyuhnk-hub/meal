@@ -396,6 +396,15 @@
   .inv-log{font-size:12.5px;color:var(--ink-dim);padding:8px 14px;border-top:1px solid var(--surface-border);display:flex;gap:8px;align-items:center;}
   .inv-log span{flex:1;line-height:1.45;}
   .tc-warn{font-size:12.5px;color:var(--warn-ink);margin-top:6px;}
+  .inv-form label.lb{display:block;font-size:12.5px;color:var(--ink-dim);font-weight:600;margin:0 0 5px;}
+  .inv-form .row{margin-bottom:10px;}
+  .unit-pick{display:flex;gap:8px;}
+  .unit-pick input,.unit-pick select,.inv-form input[type=text]{
+    width:100%;min-width:0;padding:10px 11px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:15px;
+  }
+  .unit-pick > *{flex:1;}
+  .unit-pick input[hidden]{display:none;}
 </style>
 </head>
 <body>
@@ -439,11 +448,16 @@
   <section id="tab-fridge" hidden>
     <div class="settings-block">
       <h3>🧊 냉장고에 넣기</h3>
-      <input type="text" class="search" id="inInv" placeholder="예: 대파 3대, 두부 1모, 돼지고기 600g">
+      <div class="inv-form">
+        <div class="row"><label class="lb" for="inInv">재료</label>
+          <input type="text" id="inInv" list="invNameList" placeholder="예: 대파" autocomplete="off"><datalist id="invNameList"></datalist></div>
+        <div class="row"><label class="lb">양 · 단위</label><div id="invUnitHost"></div>
+          <p class="hint" id="invUnitHint" style="margin-top:4px;"></p></div>
+      </div>
       <div class="field-row"><label>유통기한</label><div id="invExpHost" style="flex:1;"></div></div>
       <label class="check"><input type="checkbox" id="inInvNoExp"> 유통기한 없음 (양념·냉동 등)</label>
       <button class="btn primary block" id="btnInvAdd" type="button">넣기</button>
-      <p class="hint" style="margin-top:8px;">쉼표로 여러 개를 한 번에 넣을 수 있어요. 끼니가 지나면 그 메뉴 재료만큼 자동으로 빠져요(이름과 단위가 같은 것만). 바로 빼려면 식단에서 끼니를 누르고 "🍳 해먹었어요"를 누르세요.</p>
+      <p class="hint" style="margin-top:8px;">재료 이름을 적으면 레시피에서 쓰는 단위가 자동으로 골라져요. 끼니가 지나면 그 메뉴 재료만큼 자동으로 빠져요(이름과 단위가 같은 것만). 바로 빼려면 식단에서 끼니를 누르고 "🍳 해먹었어요"를 누르세요.</p>
     </div>
     <div id="invList"></div>
     <div id="invLog"></div>
@@ -1910,6 +1924,8 @@
 
   var invExpWired = false;
   function renderFridge(){
+    setupInvForm();
+    document.getElementById("invNameList").innerHTML = recipeIngredientNames().map(function(n){ return '<option value="' + esc(n) + '">'; }).join("");
     if (!invExpWired){
       document.getElementById("invExpHost").innerHTML = kdateHTML("invExp", toISO(currentToday + 7));
       kdateWire("invExp", function(){});
@@ -1971,7 +1987,7 @@
     overlay.className = "sheet-overlay";
     overlay.innerHTML = '<div class="sheet"><h3>🧊 ' + esc(it.name) + '</h3>' +
       '<div class="field"><label>이름</label><input type="text" id="ivName" value="' + esc(it.name) + '"></div>' +
-      '<div class="field"><label>남은 양</label><input type="text" id="ivAmt" value="' + esc(amountText(it)) + '" placeholder="예: 2대, 300g"></div>' +
+      '<div class="field"><label>남은 양 · 단위</label>' + unitPickerHTML("iv", Math.round(it.qty*1000)/1000, it.unit || "") + '</div>' +
       '<div class="field"><label>유통기한</label><div id="ivExpHost"></div>' +
         '<label class="check" style="margin-top:8px;"><input type="checkbox" id="ivNoExp"' + (it.exp ? '' : ' checked') + '> 유통기한 없음</label></div>' +
       '<div class="actions"><button class="btn danger" type="button" id="ivDel">다 먹음·버림</button>' +
@@ -1979,6 +1995,7 @@
     host.innerHTML = ""; host.appendChild(overlay);
     overlay.querySelector("#ivExpHost").innerHTML = kdateHTML("ivExp", it.exp || toISO(currentToday + 7));
     kdateWire("ivExp", function(){});
+    wireUnitPicker("iv");
     function close(){ host.innerHTML = ""; }
     overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
     overlay.querySelector("#ivCancel").onclick = close;
@@ -1989,10 +2006,9 @@
     };
     overlay.querySelector("#ivSave").onclick = function(){
       var name = overlay.querySelector("#ivName").value.trim();
-      var m = overlay.querySelector("#ivAmt").value.trim().match(/^(\d+(?:\.\d+)?(?:\/\d+)?)\s*(.*)$/);
-      if (!name || !m){ showToast("이름과 양을 확인해주세요 (예: 2대)"); return; }
-      var q = m[1].indexOf("/") !== -1 ? parseFloat(m[1].split("/")[0]) / parseFloat(m[1].split("/")[1]) : parseFloat(m[1]);
-      it.name = name; it.qty = q; it.unit = m[2].trim();
+      var a = readPicker("iv");
+      if (!name || isNaN(a.qty)){ showToast("이름과 양을 확인해주세요"); return; }
+      it.name = name; it.qty = a.qty; it.unit = a.unit;
       it.exp = overlay.querySelector("#ivNoExp").checked ? "" : kdateRead("ivExp");
       if (!(it.qty > 0)) state.inventory = inventory().filter(function(x){ return x.id !== id; });
       close(); scheduleSave(); renderAll();
@@ -2000,21 +2016,88 @@
     };
   }
 
-  function addInventoryFromForm(){
-    var input = document.getElementById("inInv");
-    var items = splitIngredients(input.value);
-    if (!items.length){ showToast("재료를 적어주세요 (예: 대파 3대)"); return; }
-    var exp = document.getElementById("inInvNoExp").checked ? "" : kdateRead("invExp");
-    items.forEach(function(raw){
-      var p = parseIng(raw);
-      addInventory(p.name, p.qty === null ? 1 : p.qty, p.qty === null ? "개" : p.unit, exp);
+  // ---- amount + unit picker (number box, unit dropdown, "직접 입력" for others) ----
+  var UNIT_OPTIONS = ["g","개","대","모","봉","팩","장","쪽","마리","캔","통","ml","T","t"];
+  var UNIT_NAMES = {"T":"큰술(T)","t":"작은술(t)"};
+  function unitPickerHTML(prefix, qty, unit){
+    var known = UNIT_OPTIONS.indexOf(unit) !== -1;
+    return '<div class="unit-pick">' +
+      '<input type="number" id="' + prefix + 'Qty" inputmode="decimal" min="0" step="any" placeholder="양"' + (qty ? ' value="' + qty + '"' : '') + '>' +
+      '<select id="' + prefix + 'Unit">' + UNIT_OPTIONS.map(function(u){
+        return '<option value="' + u + '"' + (u === unit ? ' selected' : '') + '>' + (UNIT_NAMES[u] || u) + '</option>';
+      }).join("") + '<option value="__custom"' + (unit && !known ? ' selected' : '') + '>직접 입력</option></select>' +
+      '<input type="text" id="' + prefix + 'UnitTxt" placeholder="단위"' + (unit && !known ? ' value="' + esc(unit) + '"' : ' hidden') + '>' +
+      '</div>';
+  }
+  function wireUnitPicker(prefix){
+    var sel = document.getElementById(prefix + "Unit"), txt = document.getElementById(prefix + "UnitTxt");
+    sel.onchange = function(){ txt.hidden = sel.value !== "__custom"; if (!txt.hidden) txt.focus(); };
+  }
+  function setPickerUnit(prefix, unit){
+    var sel = document.getElementById(prefix + "Unit"), txt = document.getElementById(prefix + "UnitTxt");
+    if (UNIT_OPTIONS.indexOf(unit) !== -1){ sel.value = unit; txt.hidden = true; }
+    else { sel.value = "__custom"; txt.value = unit; txt.hidden = false; }
+  }
+  function readPicker(prefix){
+    var q = parseFloat(document.getElementById(prefix + "Qty").value);
+    var sel = document.getElementById(prefix + "Unit").value;
+    var unit = sel === "__custom" ? document.getElementById(prefix + "UnitTxt").value.trim() : sel;
+    return {qty: q, unit: unit};
+  }
+  // the unit the recipes use for this ingredient, so the fridge matches them
+  function recipeUnitFor(name){
+    var counts = {}, best = "", bestN = 0;
+    Object.keys(state.ingredients || {}).forEach(function(d){
+      (state.ingredients[d] || []).forEach(function(raw){
+        var p = parseIng(raw);
+        if (p.qty === null || !invMatches(name, p.name)) return;
+        counts[p.unit] = (counts[p.unit] || 0) + 1;
+        if (counts[p.unit] > bestN){ bestN = counts[p.unit]; best = p.unit; }
+      });
     });
-    input.value = "";
+    return best;
+  }
+  function recipeIngredientNames(){
+    var seen = Object.create(null), out = [];
+    Object.keys(state.ingredients || {}).forEach(function(d){
+      (state.ingredients[d] || []).forEach(function(raw){
+        var n = parseIng(raw).name.replace(/\(.*?\)/g, "").trim();
+        if (n && !seen[n]){ seen[n] = 1; out.push(n); }
+      });
+    });
+    return out.sort();
+  }
+
+  var invFormReady = false;
+  function setupInvForm(){
+    if (invFormReady) return;
+    invFormReady = true;
+    document.getElementById("invUnitHost").innerHTML = unitPickerHTML("inv", "", "개");
+    wireUnitPicker("inv");
+    var nameIn = document.getElementById("inInv");
+    nameIn.oninput = function(){
+      var u = recipeUnitFor(nameIn.value.trim());
+      if (u) setPickerUnit("inv", u);
+      document.getElementById("invUnitHint").textContent = u ? '레시피에서는 "' + (UNIT_NAMES[u] || u) + '" 단위로 써요' : "";
+    };
+    nameIn.onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); document.getElementById("invQty").focus(); } };
+    document.getElementById("invQty").onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); addInventoryFromForm(); } };
+  }
+  function addInventoryFromForm(){
+    var nameIn = document.getElementById("inInv");
+    var name = nameIn.value.trim();
+    var a = readPicker("inv");
+    if (!name){ showToast("재료 이름을 적어주세요"); nameIn.focus(); return; }
+    if (!(a.qty > 0)){ showToast("양을 숫자로 적어주세요"); document.getElementById("invQty").focus(); return; }
+    var exp = document.getElementById("inInvNoExp").checked ? "" : kdateRead("invExp");
+    addInventory(name, a.qty, a.unit, exp);
+    nameIn.value = ""; document.getElementById("invQty").value = "";
+    document.getElementById("invUnitHint").textContent = "";
     scheduleSave(); renderAll();
-    showToast(items.length + "개 넣었어요 🧊");
+    nameIn.focus();
+    showToast('"' + name + ' ' + fmtQty(a.qty) + (a.unit || "") + '" 넣었어요 🧊');
   }
   document.getElementById("btnInvAdd").onclick = addInventoryFromForm;
-  document.getElementById("inInv").onkeydown = function(e){ if (e.key === "Enter"){ e.preventDefault(); addInventoryFromForm(); } };
 
   // ---------- quick meal sheet (tap a meal) ----------
   function setLock(dateISO, meal, dish){
