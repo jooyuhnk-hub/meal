@@ -396,6 +396,9 @@
   .inv-log{font-size:12.5px;color:var(--ink-dim);padding:8px 14px;border-top:1px solid var(--surface-border);display:flex;gap:8px;align-items:center;}
   .inv-log span{flex:1;line-height:1.45;}
   .tc-warn{font-size:12.5px;color:var(--warn-ink);margin-top:6px;}
+  .kcal{font-size:11px;color:var(--ink-faint);flex:none;}
+  .tc-diet{font-size:12.5px;color:var(--accent2);margin:0 0 4px 40px;}
+  .tc-kcal{font-size:12px;color:var(--ink-dim);margin-top:4px;}
   .inv-form label.lb{display:block;font-size:12.5px;color:var(--ink-dim);font-weight:600;margin:0 0 5px;}
   .inv-form .row{margin-bottom:10px;}
   .unit-pick{display:flex;gap:8px;}
@@ -495,6 +498,18 @@
       <button class="btn block" id="btnShuffle" type="button">🎲 다른 조합으로 바꾸기</button>
       <button class="btn block" id="btnUndoShuffle" type="button" style="margin-top:8px;" hidden>↩ 이전 조합으로 되돌리기</button>
       <p class="hint" style="margin-top:6px;">자동배정 메뉴가 통째로 바뀌어요. 고정한 메뉴는 그대로예요. 실수로 바꿨으면 되돌릴 수 있어요(최근 10번까지).</p>
+    </div>
+
+    <div class="settings-block">
+      <h3>💪 다이어트</h3>
+      <div class="seg" id="dietSeg">
+        <button type="button" data-diet="off">끄기</button>
+        <button type="button" data-diet="one">한 사람만</button>
+        <button type="button" data-diet="both">둘 다</button>
+      </div>
+      <div class="field-row" id="dietNameRow" style="margin-top:10px;" hidden><label>누가?</label>
+        <input type="text" class="search" id="inDietName" placeholder="예: 나, 여자친구" style="margin:0;flex:1;"></div>
+      <p class="hint" id="dietHint" style="margin-top:8px;"></p>
     </div>
 
     <div class="settings-block">
@@ -721,6 +736,18 @@
     "떡갈비":["냉동 떡갈비 4개","상추·깻잎 1팩","밥 2공기"],
     "차돌된장찌개":["차돌박이 150g","된장 2T","애호박 1/2개","감자 1개","양파 1/2개","두부 1/2모","청양고추 1개","대파 1/2대","다진마늘 1t"],
     "팟타이":["쌀국수면(팟타이용) 200g","닭가슴살·새우 200g","숙주 1봉","계란 2개","부추 1/3단","땅콩 약간","팟타이소스 4T","라임 약간"],
+    "닭가슴살 샐러드":["닭가슴살 2팩","양상추 1/2통","방울토마토 10개","오이 1/2개","삶은 계란 2개","발사믹 드레싱 3T"],
+    "두부 스테이크":["두부 1모","양파 1/2개","버섯 1팩","현미밥 2공기(작게)","간장 2T","올리브오일 1T"],
+    "연두부 비빔밥":["연두부 2팩","현미밥 2공기(작게)","오이 1/2개","김가루 약간","간장 2T","참기름 1t","쪽파 약간"],
+    "곤약 볶음밥":["곤약밥 2팩","닭가슴살 1팩","계란 2개","당근 1/3개","양파 1/2개","간장 1T"],
+    "닭가슴살 포케":["닭가슴살 2팩","현미밥 2공기(작게)","아보카도 1개","오이 1/2개","양배추 1/6통","방울토마토 8개","간장 2T"],
+    "소고기 숙주볶음":["소고기(샤브용) 200g","숙주 1봉","부추 1/3단","양파 1/2개","굴소스 1T","간장 1T"],
+    "닭가슴살 스테이크":["닭가슴살 400g","브로콜리 1송이","단호박 1/4개","올리브오일 1T","소금·후추 약간"],
+    "토마토 달걀 볶음":["토마토 3개","계란 4개","대파 1/2대","현미밥 2공기(작게)","굴소스 1t","소금 약간"],
+    "양배추 쌈밥":["양배추 1/2통","현미밥 2공기(작게)","참치캔 1개","쌈장 2T"],
+    "닭가슴살 카레":["닭가슴살 300g","카레가루 1/2봉","양파 1개","당근 1/2개","브로콜리 1/2송이","현미밥 2공기(작게)"],
+    "메밀소바":["메밀면 2인분","쯔유 4T","무 1/6개","쪽파 약간","김가루 약간"],
+    "닭가슴살 샌드위치":["통밀빵 4장","닭가슴살 1팩","양상추 1/4통","토마토 1개","머스타드 2T"],
     "스테이크":["소고기 스테이크용 400g","아스파라거스 1단","감자 1개","버터 2T","마늘 5쪽","소금·후추 약간"]
   };
   function recipeKey(name){ return String(name == null ? "" : name).replace(/\s+/g, ""); }
@@ -900,13 +927,52 @@
   }
   function holidayName(st, iso){ return isHoliday(st, iso) ? (PUBLIC_HOLIDAYS[iso] || "휴일") : ""; }
   function isOffDay(st, e){ return isoWeekdayMon1(e) >= 6 || isHoliday(st, toISO(e)); }
+  // ---- diet ----
+  // state.dietMode: "off" | "one" (one person diets: normal menu + tips) |
+  // "both" (weekday dinners come from the diet menus). Weekends/holidays
+  // always use the normal menus. A dish is a diet menu if it's one of the
+  // built-in ones below or ticked in settings (state.dishDiet).
+  var DIET_DISHES = ["닭가슴살 샐러드","두부 스테이크","연두부 비빔밥","곤약 볶음밥","닭가슴살 포케","소고기 숙주볶음",
+    "닭가슴살 스테이크","토마토 달걀 볶음","양배추 쌈밥","닭가슴살 카레","메밀소바","닭가슴살 샌드위치"];
+  var DIET_KEYS = Object.create(null);
+  DIET_DISHES.forEach(function(n){ DIET_KEYS[recipeKey(n)] = 1; });
+  function dietModeOf(st){ return st.dietMode === "one" || st.dietMode === "both" ? st.dietMode : "off"; }
+  function isDietDish(st, name){
+    var set = st.dishDiet || {};
+    if (Object.prototype.hasOwnProperty.call(set, name)) return !!set[name];
+    return !!DIET_KEYS[recipeKey(name)];
+  }
+  function isDietSlot(st, e, meal){ return dietModeOf(st) === "both" && meal === "dinner" && !isOffDay(st, e); }
+  // rough kcal per person (rice included where it's eaten with rice)
+  var KCAL = {
+    "고추장찌개":650,"우삼겹파스타":750,"수육":700,"라면":550,"알올":600,"베이컨볶음밥":700,"피자":800,"치킨마요":750,
+    "오징어볶음":600,"스팸마요":750,"나시고랭":700,"닭도리탕":700,"닭구이(양념)":650,"닭구이(간장)":600,"떡만두국":600,
+    "등갈비찜":800,"갈비탕":650,"감자탕":750,"제육":700,"떡볶이":600,"차돌들깨수제비":650,"카레":700,"부대찌개":750,
+    "까르보로제찜닭":850,"오므라이스":700,"규동":750,"비빔국수":550,"볶음우동":600,"잔치국수":500,"간장계란밥":550,
+    "크림파스타":800,"쌀국수":500,"불고기":650,"샤브샤브":550,"스테이크":700,"육개장":600,"감바스":600,"된장찌개":500,
+    "순두부찌개":550,"돈까스":850,"닭갈비":700,"잡채":600,"콩나물국밥":500,"하이라이스":700,"가츠동":850,"오야코동":650,
+    "데리야끼치킨덮밥":700,"참치마요덮밥":700,"토마토파스타":650,"로제파스타":750,"야끼소바":650,"김밥":500,
+    "돼지갈비(양념)":800,"간장돼지불고기":650,"삼겹살":900,"찜닭":700,"닭칼국수":600,"유린기":750,"함박스테이크":750,
+    "떡갈비":700,"차돌된장찌개":600,"만두":500,"팟타이":650,"비빔밥":600,"김치찌개":600,"김치볶음밥":650,"마파두부":600,
+    "닭가슴살샐러드":350,"두부스테이크":350,"연두부비빔밥":400,"곤약볶음밥":350,"닭가슴살포케":450,"소고기숙주볶음":400,
+    "닭가슴살스테이크":350,"토마토달걀볶음":350,"양배추쌈밥":400,"닭가슴살카레":450,"메밀소바":400,"닭가슴살샌드위치":400
+  };
+  function kcalOf(name){ return KCAL[recipeKey(name)] || 0; }
+  // one-person diet: how to eat the normal menu lighter
+  function dietTip(st, name){
+    var n = String(name || "");
+    if (/까스|가츠|치킨|유린기|마요|튀김/.test(n)) return {t:"튀김옷 벗기고 소스·마요 덜", save:200};
+    if (/면|파스타|라면|국수|우동|소바|수제비|알올|팟타이/.test(n) || dishCats(st, n).indexOf("noodle") !== -1) return {t:"면 2/3만, 채소·고기 위주로", save:150};
+    if (/탕|찌개|국/.test(n)) return {t:"국물 줄이고 건더기 위주, 밥 반 공기", save:150};
+    if (/삼겹|갈비|수육|불고기|제육|구이|스테이크|떡갈비|찜/.test(n)) return {t:"밥 반 공기, 쌈채소 듬뿍", save:150};
+    return {t:"밥 반 공기로", save:150};
+  }
   function isEatout(st, name){ return dishCats(st, name).indexOf("eatout") !== -1; }
   function eatoutGapOf(st){ return st.eatoutGap == null ? 3 : (parseInt(st.eatoutGap,10) || 0); }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
     var dishes = uniqueDishes(st.dishes);
-    var nh = dishes.map(hash32);
     var seed = st.seed || 1;
     var anchor = st.anchorDate ? parseISO(st.anchorDate) : today;
     var genStart = Math.min(anchor, today);
@@ -982,26 +1048,37 @@
     // A newly added dish only joins the queue from a later position (about
     // two weeks out), so adding one doesn't reshuffle meals you've already
     // seen for the next two weeks.
+    // Diet menus have their own queue, used only for diet slots (weekday
+    // dinners when both people diet); the normal queue never contains them,
+    // so with no diet menus the normal plan is exactly what it always was.
     var join = st.dishJoin || {};
     var pref = st.dishPref || {};
-    var qLastPos = Object.create(null), qj = 0;
-    function nextQueueItem(){
-      var best = -1, bestScore = Infinity;
-      for (var k=0; k<dishes.length; k++){
-        if ((join[dishes[k]] || 0) > qj) continue;
-        var lp = qLastPos[dishes[k]];
-        var blocked = (lp !== undefined && qj - lp < REPEAT_GAP);
-        // very short menu list: fall back to least-recently-used
-        var score = blocked ? 2 + (lp - (qj-REPEAT_GAP))/REPEAT_GAP : prefWeight(pref[dishes[k]]) * rand01(seed, qj, nh[k]);
-        if (score < bestScore){ bestScore = score; best = k; }
-      }
-      if (best === -1) best = 0; // every dish still waiting to join (edge case)
-      qLastPos[dishes[best]] = qj; qj++;
-      return dishes[best];
+    function makeQueue(list, qSeed, useJoin){
+      var hashes = list.map(hash32), lastPos = Object.create(null), q = {pos: 0};
+      q.next = function(){
+        var best = -1, bestScore = Infinity, qp = q.pos;
+        for (var k=0; k<list.length; k++){
+          if (useJoin && (join[list[k]] || 0) > qp) continue;
+          var lp = lastPos[list[k]];
+          var blocked = (lp !== undefined && qp - lp < REPEAT_GAP);
+          // very short menu list: fall back to least-recently-used
+          var score = blocked ? 2 + (lp - (qp-REPEAT_GAP))/REPEAT_GAP : prefWeight(pref[list[k]]) * rand01(qSeed, qp, hashes[k]);
+          if (score < bestScore){ bestScore = score; best = k; }
+        }
+        if (best === -1) best = 0; // every dish still waiting to join (edge case)
+        lastPos[list[best]] = qp; q.pos++;
+        return list[best];
+      };
+      return q;
     }
+    var dietList = dishes.filter(function(n){ return isDietDish(st, n); });
+    var normalList = dishes.filter(function(n){ return !isDietDish(st, n); });
+    if (!normalList.length) normalList = dishes;
+    var mainQ = makeQueue(normalList, seed, true);
+    var dietQ = makeQueue(dietList, seed + 7919, false);
 
     // step 2: placement
-    var buffer = [];
+    var buffer = [], dietBuffer = [];
     var lastPlaced = Object.create(null);
     var slots = [];
     for (var e=Math.min(genStart, from); e<=end; e++){
@@ -1019,32 +1096,43 @@
         var ov = ovByKey[iso + "|" + meal];
         var final = "", isOv = false;
         var fromQueue = planned && !(meal === "lunch" && lunchOnlyFromHistory);
+        var dietSlot = isDietSlot(st, e, meal) && dietList.length > 0;
         if (ov){
           final = String(ov.dish).trim(); isOv = true;
         } else if (fromQueue && dishes.length){
-          while (buffer.length < LOOKAHEAD) buffer.push(nextQueueItem());
+          var buf = dietSlot ? dietBuffer : buffer, useQ = dietSlot ? dietQ : mainQ;
+          while (buf.length < LOOKAHEAD) buf.push(useQ.next());
           // Score every buffered candidate on the rules, most important
           // first, and take the best (earliest in the queue on a tie):
-          // chicken spacing > same kind in a row > 10-day repeat > light lunch.
+          // chicken spacing > eating-out spacing > same kind in a row >
+          // 10-day repeat > light lunch. If nothing in the buffer meets the
+          // first three, look a little further down the queue (rare).
           var pick = 0, best = null;
-          for (var b=0; b<buffer.length; b++){
-            var cand = buffer[b];
-            var lp2 = lastPlaced[cand];
-            var sc = [
-              chickenTooSoon(cand, e) ? 1 : 0,
-              eatoutTooSoon(cand, e) ? 1 : 0,
-              catClash(cand, e) ? 1 : 0,
-              (nearLock(cand, e) || (lp2 !== undefined && e - lp2 < 10)) ? 1 : 0,
-              meal === "lunch" ? lunchPenalty(st, cand) : 0
-            ];
-            var better = !best;
-            for (var si=0; !better && si<sc.length; si++){
-              if (sc[si] !== best[si]){ better = sc[si] < best[si]; break; }
+          function scoreFrom(start){
+            for (var b=start; b<buf.length; b++){
+              var cand = buf[b];
+              var lp2 = lastPlaced[cand];
+              var sc = [
+                chickenTooSoon(cand, e) ? 1 : 0,
+                eatoutTooSoon(cand, e) ? 1 : 0,
+                catClash(cand, e) ? 1 : 0,
+                (nearLock(cand, e) || (lp2 !== undefined && e - lp2 < 10)) ? 1 : 0,
+                meal === "lunch" ? lunchPenalty(st, cand) : 0
+              ];
+              var better = !best;
+              for (var si=0; !better && si<sc.length; si++){
+                if (sc[si] !== best[si]){ better = sc[si] < best[si]; break; }
+              }
+              if (better){ best = sc; pick = b; }
+              if (sc.every(function(v){ return !v; })) return; // perfect fit, stop looking
             }
-            if (better){ best = sc; pick = b; }
-            if (!sc[0] && !sc[1] && !sc[2] && !sc[3]) break;
           }
-          final = buffer.splice(pick, 1)[0];
+          scoreFrom(0);
+          for (var extra = 0; extra < 10 && (best[0] || best[1] || best[2]); extra++){
+            buf.push(useQ.next());
+            scoreFrom(buf.length - 1);
+          }
+          final = buf.splice(pick, 1)[0];
         }
         if (final) lastPlaced[final] = e;
         if (final && isChicken(st, final)) lastChicken = e;
@@ -1054,7 +1142,7 @@
         if (e >= from){
           slots.push({
             epoch: e, dateISO: iso, weekIdx: Math.floor((e - monday)/7), meal: meal,
-            final: final, isOverride: isOv, isToday: e === today, isPast: past, q: qj
+            final: final, isOverride: isOv, isToday: e === today, isPast: past, q: mainQ.pos, isDiet: dietSlot && !isOv
           });
         }
       }
@@ -1215,6 +1303,7 @@
         html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
           '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final ? esc(s.final) : (s.isPast ? "기록 없음" : "미정")) + '</span>' +
+          (s.final && kcalOf(s.final) ? '<span class="kcal">' + (s.isDiet ? "💪 " : "") + kcalOf(s.final) + 'kcal</span>' : '') +
           (s.isOverride ? '<span class="lock-pill">🔒 고정</span>' : '') +
           '<span class="chev">›</span></div>';
       });
@@ -1225,6 +1314,16 @@
     Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
       row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
     });
+  }
+
+  // diet note for one meal: the diet menu mark (both) or how the dieter eats
+  // the normal menu lighter (one)
+  function dietLine(s){
+    if (!s.final) return "";
+    if (s.isDiet) return "💪 다이어트 메뉴" + (kcalOf(s.final) ? " · 약 " + kcalOf(s.final) + "kcal" : "");
+    if (dietModeOf(state) !== "one" || s.meal !== "dinner" || isOffDay(state, s.epoch) || isEatout(state, s.final)) return "";
+    var k = kcalOf(s.final), tip = dietTip(state, s.final);
+    return "💪 " + esc(state.dietName || "다이어트 중") + ": " + tip.t + (k ? " → 약 " + (k - tip.save) + "kcal" : "");
   }
 
   // big "today" card at the top, so a glance is enough
@@ -1240,8 +1339,13 @@
         return '<div class="tc-meal" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="tc-tag">' + MEAL_LABEL[s.meal] + '</span>' +
           '<span class="tc-dish' + (s.final ? "" : " empty") + '">' + (s.final ? esc(s.final) : "미정") + '</span>' +
-          (s.isOverride ? '<span class="lock-pill">🔒</span>' : '') + '</div>';
+          (s.isOverride ? '<span class="lock-pill">🔒</span>' : '') + '</div>' +
+          (dietLine(s) ? '<div class="tc-diet">' + dietLine(s) + '</div>' : '');
       }).join("") +
+      (function(){
+        var total = todays.reduce(function(a, s){ return a + (s.final ? kcalOf(s.final) : 0); }, 0);
+        return total ? '<div class="tc-kcal">오늘 1인 약 ' + total + 'kcal</div>' : '';
+      })() +
       (tomorrow.length ? '<div class="tc-next">내일 ' + tomorrow.map(function(s){
         return MEAL_LABEL[s.meal] + ' <b>' + (s.final ? esc(s.final) : "미정") + '</b>';
       }).join(" · ") + '</div>' : '') +
@@ -1632,6 +1736,16 @@
     document.getElementById("inEatoutGap").value = String(eatoutGapOf(state));
     var chickens = (state.dishes||[]).filter(function(n){ return isChicken(state, n); });
     document.getElementById("inAvoidRepeat").checked = avoidRepeatOf(state);
+    var dm = dietModeOf(state);
+    Array.prototype.forEach.call(document.querySelectorAll("#dietSeg button"), function(b){ b.classList.toggle("on", b.getAttribute("data-diet") === dm); });
+    document.getElementById("dietNameRow").hidden = dm !== "one";
+    var dn = document.getElementById("inDietName");
+    if (document.activeElement !== dn) dn.value = state.dietName || "";
+    var nDiet = (state.dishes || []).filter(function(n){ return isDietDish(state, n); }).length;
+    document.getElementById("dietHint").textContent =
+      dm === "both" ? "평일 저녁은 다이어트 메뉴(💪, 지금 " + nDiet + "개)로, 주말·휴일은 평소 메뉴로 짜요." :
+      dm === "one" ? "메뉴는 평소대로 두고, 평일 저녁마다 " + (state.dietName || "다이어트하는 사람") + "용으로 덜 먹는 방법과 대략적인 칼로리를 보여줘요." :
+      "다이어트 메뉴(💪)는 식단에 안 나와요. 칼로리는 메뉴마다 대략 표시돼요.";
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
       ". 자동배정에서만 간격을 지키고, 직접 고정한 메뉴는 그대로 둬요.";
 
@@ -1654,11 +1768,13 @@
           (pv === "often" ? '<span class="pref-badge">⭐자주</span>' : pv === "rare" ? '<span class="pref-badge">💤가끔</span>' : '') +
           (dishWeight(state, name) === "light" ? '<span class="pref-badge">🥗</span>' : dishWeight(state, name) === "heavy" ? '<span class="pref-badge">🍖</span>' : '') +
           (ratingOf(name) ? '<span class="star-badge">★' + ratingOf(name) + '</span>' : '') +
+          (isDietDish(state, name) ? '<span class="pref-badge">💪</span>' : '') +
           '<span class="count">' + (ing.length ? ing.length + '개 재료' : '재료 없음') + '</span>' +
           '<button class="remove-x" data-remove="' + idx + '" title="요리 삭제">✕</button>' +
         '</div>';
       if (open){
         html += '<div class="dish-body">' + starsHTML(name) +
+          '<label class="check" style="margin-top:6px;"><input type="checkbox" data-diet-idx="' + idx + '"' + (isDietDish(state, name) ? ' checked' : '') + '> 💪 다이어트 메뉴 (둘 다 다이어트할 때 평일 저녁에 나와요)</label>' +
           '<div class="seg" style="margin-top:10px;">' +
             [["often","⭐ 자주"],["normal","보통"],["rare","💤 가끔"]].map(function(o){
               return '<button type="button" data-pref="' + o[0] + '" data-pidx="' + idx + '" class="' + (pv === o[0] ? "on" : "") + '">' + o[1] + '</button>';
@@ -1684,6 +1800,15 @@
     });
     dishHost.innerHTML = html || '<p class="hint">' + (q ? "검색 결과가 없어요." : "아직 요리가 없어요.") + '</p>';
     wireStars(dishHost);
+    Array.prototype.forEach.call(dishHost.querySelectorAll("[data-diet-idx]"), function(cb){
+      cb.onchange = function(){
+        var name = state.dishes[parseInt(cb.getAttribute("data-diet-idx"),10)];
+        state.dishDiet = state.dishDiet || {};
+        state.dishDiet[name] = !!cb.checked;
+        scheduleSave(); renderAll();
+        showToast(cb.checked ? '"' + name + '" 다이어트 메뉴로 넣었어요' : '"' + name + '" 평소 메뉴로 돌렸어요');
+      };
+    });
     Array.prototype.forEach.call(dishHost.querySelectorAll("[data-weight]"), function(b){
       b.onclick = function(){
         var name = state.dishes[parseInt(b.getAttribute("data-widx"),10)];
@@ -2138,6 +2263,9 @@
     var pref = state.dishPref || {};
     var slotHash = hash32(toISO(e) + "|" + meal);
     var all = uniqueDishes(state.dishes).filter(function(n){ return n !== current && !NOT_A_DISH.test(n); });
+    var wantDiet = isDietSlot(state, e, meal);
+    var pool = all.filter(function(n){ return isDietDish(state, n) === wantDiet; });
+    if (pool.length >= 3) all = pool;
     var good = all.filter(function(n){ return !near[n] && !(chickenNear && isChicken(state, n)) && !kindClash(n); });
     var list = good.length >= 3 ? good : all;
     return list.map(function(n){
@@ -2163,7 +2291,9 @@
     overlay.innerHTML =
       '<div class="sheet">' +
         '<h3>' + dispDate(e) + ' ' + MEAL_LABEL[meal] + ' · ' + (dish ? esc(dish) : (past ? "기록 없음" : "미정")) + (locked ? ' 🔒' : '') + '</h3>' +
-        '<p class="sub">' + (past ? "지난 끼니예요. 바꾸면 기록이 바뀌어요." : "바꾸면 원래 메뉴는 다음 끼니로 밀려요.") + '</p>' +
+        '<p class="sub">' + (past ? "지난 끼니예요. 바꾸면 기록이 바뀌어요." : "바꾸면 원래 메뉴는 다음 끼니로 밀려요.") +
+          (dish && kcalOf(dish) ? '<br>1인분 약 ' + kcalOf(dish) + 'kcal (밥 포함, 대략)' : '') +
+          (slot && dietLine(slot) ? '<br>' + dietLine(slot) : '') + '</p>' +
         (dish && (state.dishes || []).indexOf(dish) !== -1 ? starsHTML(dish) + '<div style="height:8px"></div>' : '') +
         '<div class="act-grid">' +
           '<button class="btn" type="button" data-quick="외식">🍽 외식</button>' +
@@ -2355,6 +2485,17 @@
   };
 
   // settings field wiring
+  Array.prototype.forEach.call(document.querySelectorAll("#dietSeg button"), function(b){
+    b.onclick = function(){
+      state.dietMode = b.getAttribute("data-diet");
+      scheduleSave(); renderAll();
+      showToast(state.dietMode === "both" ? "평일 저녁은 다이어트 메뉴로 짤게요 💪" : state.dietMode === "one" ? "평일 저녁에 다이어트 팁을 보여줄게요 💪" : "다이어트 모드를 껐어요");
+    };
+  });
+  document.getElementById("inDietName").onchange = function(e){
+    state.dietName = e.target.value.trim();
+    scheduleSave(); renderAll();
+  };
   document.getElementById("inAvoidRepeat").onchange = function(e){
     state.avoidRepeat = !!e.target.checked;
     scheduleSave(); renderAll();
