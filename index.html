@@ -2176,7 +2176,10 @@
   // What the next pack day gets, from the front of the queues.
   // me: 밥 1 + 닭 1 (no rice left: 닭 2개 / 집밥 take turns)
   // you: 닭 1 (on 집밥 days both eat 집밥)
-  function nextPackMeal(rice, chicken, alt){
+  // skip: "" | "me" | "you" | "all" — who didn't eat that day (state.packSkip);
+  // their share stays in the fridge and goes to the next day
+  function nextPackMeal(rice, chicken, alt, skip){
+    if (skip === "all") return {type: "skipped", me: [], you: [], ids: [], r: 0, c: 0, skipWho: "all"};
     var a;
     if (rice.length && chicken.length) a = {type: "meal", me: [rice[0], chicken[0]], r: 1, c: 1};
     else if (rice.length) a = {type: "rice", me: [rice[0]], r: 1, c: 0};
@@ -2184,11 +2187,14 @@
     else if (alt % 2 === 1) return {type: "home", me: [], you: [], ids: [], r: 0, c: 0, alt: true};
     else if (chicken.length >= 2) a = {type: "chicken2", me: [chicken[0], chicken[1]], r: 0, c: 2, alt: true};
     else a = {type: "chicken1", me: [chicken[0]], r: 0, c: 1, alt: true};
-    a.you = chicken.length > a.c ? [chicken[a.c]] : [];
+    if (skip === "me"){ a.me = []; a.r = 0; a.c = 0; a.alt = false; }
+    a.you = skip === "you" ? [] : (chicken.length > a.c ? [chicken[a.c]] : []);
     a.c += a.you.length;
     a.ids = a.me.concat(a.you);
+    a.skipWho = skip || "";
     return a;
   }
+  function packSkipOf(iso){ return (state.packSkip || {})[iso] || ""; }
   function packName(id, log){
     var it = itemById(id);
     if (it) return it.name;
@@ -2196,7 +2202,7 @@
     return l ? l.name : "";
   }
   function packText(a, log){
-    if (a.skip) return "건너뜀";
+    if (a.skip || a.type === "skipped") return "둘 다 안 먹음";
     if (a.type === "home") return "집밥 (밥 반 공기 + 반찬)";
     if (a.type === "none") return "다이어트 팩을 다 먹었어요";
     var nm = packNames();
@@ -2207,14 +2213,17 @@
   }
   // same as packText, but one line per person (광훈 on the first, 수아 on the second)
   function packHTML(a, log, done){
-    var mark = done ? "✅ " : "";
-    if (a.skip || a.type === "home" || a.type === "none") return '<span class="pk-line"><span class="pk-txt">' + mark + esc(packText(a, log)) + '</span></span>';
+    if (a.skip || a.type === "skipped") return '<span class="pk-line"><span class="pk-txt">🚫 둘 다 안 먹음</span></span>';
+    if (a.type === "home" || a.type === "none") return '<span class="pk-line"><span class="pk-txt">' + (done ? "✅ " : "") + esc(packText(a, log)) + '</span></span>';
     var nm = packNames();
     var me = (a.me || []).map(function(id){ return packName(id, log); }).join(" + ");
     var you = (a.you || []).map(function(id){ return packName(id, log); }).join(" + ");
-    return '<span class="pk-line"><span class="pk-who">' + mark + esc(nm.me) + '</span><span class="pk-txt">' + esc(me || "-") +
-        (a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '') + '</span></span>' +
-      '<span class="pk-line"><span class="pk-who">' + (mark ? "　 " : "") + esc(nm.you) + '</span><span class="pk-txt">' + esc(you || "집밥") + '</span></span>';
+    function line(who, txt, skipped, extra){
+      return '<span class="pk-line"><span class="pk-who">' + esc(who) + '</span><span class="pk-txt">' +
+        (skipped ? '🚫 안 먹음' : (done ? "✅ " : "") + esc(txt || "-") + (extra || "")) + '</span></span>';
+    }
+    return line(nm.me, me, a.skipWho === "me", a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '') +
+      line(nm.you, you || "집밥", a.skipWho === "you");
   }
   // date -> plan for the pack days in [from, to]: past/eaten days from the
   // log, upcoming ones simulated from the queues
@@ -2228,22 +2237,22 @@
       var iso = toISO(e), log = cons[iso + "|pack"];
       if (log){
         var items = log.items || [];
-        map[iso] = {type: log.type || "none", ids: items.map(function(x){ return x.id; }),
+        map[iso] = {type: log.skip ? "skipped" : (log.type || "none"), ids: items.map(function(x){ return x.id; }),
           me: items.filter(function(x){ return x.who !== "you"; }).map(function(x){ return x.id; }),
           you: items.filter(function(x){ return x.who === "you"; }).map(function(x){ return x.id; }),
-          done: !log.skip, skip: !!log.skip, log: items};
+          done: !log.skip && log.type !== "skipped", skip: !!log.skip, skipWho: log.skipWho || (log.skip ? "all" : ""), log: items};
         continue;
       }
       if (e < currentToday) continue; // not eaten yet but past: autoPack handles it
       if (packEatenOut(e)) continue;   // 외식/배달 locked that evening
-      var a = nextPackMeal(rice, chicken, alt);
+      var a = nextPackMeal(rice, chicken, alt, packSkipOf(iso));
       rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++;
       map[iso] = a;
     }
     return map;
   }
   function eatPack(iso){
-    var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0);
+    var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0, packSkipOf(iso));
     var items = a.ids.map(function(id, i){
       var it = itemById(id);
       return {id: id, name: it.name, line: it.line || "", pack: it.pack, who: i < a.me.length ? "me" : "you"};
@@ -2254,7 +2263,7 @@
     state.packSeq.chicken = (state.packSeq.chicken || []).slice(a.c);
     if (a.alt) state.packAlt = (state.packAlt || 0) + 1;
     state.consumed = state.consumed || {};
-    state.consumed[iso + "|pack"] = {type: a.type, items: items, alt: !!a.alt};
+    state.consumed[iso + "|pack"] = {type: a.type, items: items, alt: !!a.alt, skipWho: a.skipWho || ""};
     return a;
   }
   // put a day's items back at the front of the queue
@@ -2271,14 +2280,20 @@
     state.packSeq.rice = rice.concat(state.packSeq.rice || []);
     state.packSeq.chicken = chicken.concat(state.packSeq.chicken || []);
     if (log.alt) state.packAlt = Math.max(0, (state.packAlt || 0) - 1);
-    if (parseISO(iso) < currentToday) state.consumed[key] = {skip: true};
-    else delete state.consumed[key];
+    delete state.consumed[key];
   }
-  function lastEatenPackDay(){
-    var keys = Object.keys(state.consumed || {}).filter(function(k){
-      var v = state.consumed[k]; return /\|pack$/.test(k) && v && !v.skip;
-    }).sort();
-    return keys.length ? keys[keys.length - 1].split("|")[0] : "";
+  // mark who didn't eat on a day; a finished day gets its fridge items
+  // redone (the uneaten share goes back and moves to the next day)
+  function setPackSkip(iso, who){
+    state.packSkip = state.packSkip || {};
+    if (who) state.packSkip[iso] = who; else delete state.packSkip[iso];
+    var key = iso + "|pack";
+    if ((state.consumed || {})[key]){
+      uneatPack(iso);
+      if (parseISO(iso) < currentToday) eatPack(iso);
+    }
+    var cut = toISO(currentToday - 60);
+    Object.keys(state.packSkip).forEach(function(k){ if (k < cut) delete state.packSkip[k]; });
   }
   // a dinner lock (외식, 배달, anything) on a pack day means no pack that day
   function packEatenOut(e){
@@ -2343,30 +2358,32 @@
   function openPackSheet(iso){
     var e = parseISO(iso), a = (lastPack || {})[iso];
     if (!a) return;
-    var key = iso + "|pack", isToday = e === currentToday, canUndo = a.done && iso === lastEatenPackDay();
+    var past = e < currentToday, nm = packNames();
+    var cur = a.skipWho || (a.skip ? "all" : "") || packSkipOf(iso);
+    var opts = [["", past ? "✅ 둘 다 먹음" : "🍽 둘 다 먹을 예정"], ["me", "🚫 " + nm.me + " 안 먹음"], ["you", "🚫 " + nm.you + " 안 먹음"], ["all", "🚫 둘 다 안 먹음"]];
     var host = document.getElementById("sheetHost");
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
     overlay.innerHTML = '<div class="sheet"><h3>💪 ' + dispDate(e) + ' 다이어트 저녁</h3>' +
       '<p class="sub">' + packHTML(a, a.log, a.done) + '</p>' +
-      '<div class="act-grid">' +
-        (isToday && !a.done && !a.skip && a.ids.length ? '<button class="btn primary wide" type="button" id="pkEat">🍳 지금 먹었어요 (냉장고에서 빼기)</button>' : '') +
-        (isToday && !a.done && !a.skip ? '<button class="btn wide" type="button" id="pkSkip">오늘은 건너뛰기 (외식 등)</button>' : '') +
-        (canUndo ? '<button class="btn wide" type="button" id="pkUndo">↩ 먹은 거 되돌리기</button>' : '') +
-        (a.skip && isToday ? '<button class="btn wide" type="button" id="pkUnskip">건너뛰기 취소</button>' : '') +
-      '</div>' +
-      '<p class="hint">평일 저녁마다 자동으로 정해지고, 하루가 지나면 알아서 냉장고에서 빠져요. 외식하는 날은 "건너뛰기"나 외식 고정을 하면 돼요. 팩 재고는 냉장고 탭에서 볼 수 있어요.</p>' +
+      '<div class="act-grid">' + opts.map(function(o){
+        return '<button class="btn' + (o[0] === cur ? " primary" : "") + '" type="button" data-skipwho="' + o[0] + '">' + esc(o[1]) + '</button>';
+      }).join("") + '</div>' +
+      '<p class="hint">안 먹은 사람만 체크하세요. 체크 안 하면 하루가 지나면 알아서 냉장고에서 빠져요. 안 먹은 몫은 냉장고에 남아서 다음 날로 넘어가요. 외식하는 날은 저녁에 외식을 고정해도 돼요.</p>' +
       '<div class="actions"><button class="btn" type="button" id="pkClose">닫기</button></div></div>';
     host.innerHTML = ""; host.appendChild(overlay);
     function close(){ host.innerHTML = ""; }
-    function done(msg){ close(); scheduleSave(); renderAll(); showToast(msg); }
     overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
     overlay.querySelector("#pkClose").onclick = close;
-    var b;
-    if ((b = overlay.querySelector("#pkEat"))) b.onclick = function(){ eatPack(iso); done("냉장고에서 뺐어요 💪"); };
-    if ((b = overlay.querySelector("#pkSkip"))) b.onclick = function(){ state.consumed = state.consumed || {}; state.consumed[key] = {skip: true}; done("오늘 다이어트 팩은 건너뛰었어요"); };
-    if ((b = overlay.querySelector("#pkUndo"))) b.onclick = function(){ uneatPack(iso); done("냉장고에 다시 넣었어요"); };
-    if ((b = overlay.querySelector("#pkUnskip"))) b.onclick = function(){ delete state.consumed[key]; done("건너뛰기를 취소했어요"); };
+    Array.prototype.forEach.call(overlay.querySelectorAll("[data-skipwho]"), function(btn){
+      btn.onclick = function(){
+        var who = btn.getAttribute("data-skipwho");
+        if (who === cur){ close(); return; }
+        setPackSkip(iso, who);
+        close(); scheduleSave(); renderAll();
+        showToast(who === "all" ? dispDate(e) + " 둘 다 안 먹은 걸로 했어요" : who ? dispDate(e) + " " + (who === "me" ? nm.me : nm.you) + " 안 먹은 걸로 했어요" : dispDate(e) + " 둘 다 먹은 걸로 했어요");
+      };
+    });
   }
 
   function expiringSoon(){
