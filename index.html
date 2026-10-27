@@ -2248,17 +2248,19 @@
     return n;
   }
   // Refilling: new units go after everything already planned, so the
-  // upcoming days don't change. entries: [[name, qty, kind, line?], ...]
+  // upcoming days don't change. entries: [{name, qty, kind, line?}, ...]
+  // (objects, not nested arrays: Firestore can't store arrays in arrays)
   function addPackStockMany(entries){
     var seqs = {rice: packSeq("rice"), chicken: packSeq("chicken")};
     var fresh = {rice: [], chicken: []};
     entries.forEach(function(en){
-      var name = en[0], qty = Math.round(en[1]), kind = en[2];
+      if (Array.isArray(en)) en = {name: en[0], qty: en[1], kind: en[2], line: en[3]};
+      var name = en.name, qty = Math.round(en.qty), kind = en.kind;
       if (!name || !(qty > 0) || !fresh[kind]) return;
       var it = inventory().filter(function(x){ return x.pack === kind && x.name === name; })[0];
       if (it) it.qty = Math.round(it.qty) + qty;
       else {
-        it = {id: "inv" + Date.now() + Math.floor(Math.random()*100000), name: name, qty: qty, unit: "개", exp: "", pack: kind, line: en[3] || name.split(" ")[0]};
+        it = {id: "inv" + Date.now() + Math.floor(Math.random()*100000), name: name, qty: qty, unit: "개", exp: "", pack: kind, line: en.line || name.split(" ")[0]};
         inventory().push(it);
       }
       fresh[kind].push({id: it.id, line: it.line || it.name, n: qty});
@@ -2266,7 +2268,7 @@
     state.packSeq = {rice: seqs.rice.concat(orderUnits(fresh.rice)), chicken: seqs.chicken.concat(orderUnits(fresh.chicken))};
     if (!state.invStart) state.invStart = toISO(currentToday);
   }
-  function addPackStock(name, qty, kind, line){ addPackStockMany([[name, qty, kind, line]]); }
+  function addPackStock(name, qty, kind, line){ addPackStockMany([{name: name, qty: qty, kind: kind, line: line}]); }
   // one less: take the last planned unit of that item off the end
   function removePackUnit(id){
     var it = itemById(id);
@@ -2390,7 +2392,7 @@
     host.innerHTML = '<div class="inv-group' + (nr <= 3 ? " warn" : "") + '"><h2>💪 다이어트 팩 — 밥 ' + nr + ' · 닭 ' + nc + ' (평일 ' + days + '일치)</h2>' +
       (nr <= 3 ? '<div class="inv-log"><span>🍚 밥(삼김·주먹밥)이 ' + nr + '개 남았어요. 사야 해요! 밥이 없으면 "닭 2개"와 "집밥"이 번갈아 나와요.</span></div>' : '') +
       templates.map(function(t, i){
-        var n = t.items.reduce(function(a, x){ return a + x[1]; }, 0);
+        var n = t.items.reduce(function(a, x){ return a + (Array.isArray(x) ? x[1] : x.qty); }, 0);
         return '<div class="inv-log"><button class="btn primary block" type="button" data-pk-tpl="' + i + '">📦 ' + esc(t.name) + ' 한 번 더 넣기 (' + n + '개)</button></div>';
       }).join("") +
       '<div class="inv-log" style="flex-direction:column;align-items:stretch;gap:6px;">' +
@@ -2422,7 +2424,7 @@
     Array.prototype.forEach.call(host.querySelectorAll("[data-pk-tpl]"), function(b){
       b.onclick = function(){
         var t = templates[parseInt(b.getAttribute("data-pk-tpl"), 10)];
-        var n = t.items.reduce(function(a, x){ return a + x[1]; }, 0);
+        var n = t.items.reduce(function(a, x){ return a + (Array.isArray(x) ? x[1] : x.qty); }, 0);
         if (!confirm(t.name + " " + n + "개를 냉장고에 넣을까요?")) return;
         addPackStockMany(t.items);
         changed(t.name + " " + n + "개 넣었어요 📦");
