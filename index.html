@@ -402,6 +402,12 @@
   .pk-who{flex:none;min-width:2.4em;font-weight:700;color:var(--accent2);}
   .pk-txt{flex:1;min-width:0;word-break:keep-all;overflow-wrap:break-word;}
   .pk-nut{display:block;font-size:11.5px;color:var(--ink-faint);font-weight:400;}
+  .co-row .meal-tag{width:auto;white-space:nowrap;color:#4a7fb5;}
+  .co-row .meal-dish{font-size:14px;word-break:keep-all;}
+  .co-list{margin:0 0 12px;padding:0;list-style:none;}
+  .co-list li{padding:7px 2px;border-top:1px solid var(--surface-border);font-size:15px;}
+  .co-list li:first-child{border-top:none;}
+  .co-list li.basic{color:var(--ink-dim);font-size:13.5px;}
   .pack-row .meal-dish{font-size:14px;}
   .tc-dish.pk{font-size:15.5px;font-family:inherit;font-weight:600;}
   .tc-diet{font-size:12.5px;color:var(--accent2);margin:0 0 4px 40px;}
@@ -1347,6 +1353,7 @@
       var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
         dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') +
         (holiday ? ' <span class="lock-pill">🎌 ' + esc(holiday) + '</span>' : '') + '</div>';
+      html += companyRowHTML(s0.dateISO);
       daySlots.forEach(function(s){
         if (s.isPack){
           var pk = lastPack[s.dateISO];
@@ -1369,7 +1376,8 @@
   function wireMealRows(host){
     Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
       row.onclick = function(){
-        if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
+        if (row.hasAttribute("data-co")) openCompanySheet(row.getAttribute("data-co"));
+        else if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
         else openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal"));
       };
     });
@@ -1385,6 +1393,50 @@
     return "💪 " + esc(state.dietName || "다이어트 중") + ": " + tip.t + (k ? " → 약 " + (k - tip.save) + "kcal" : "");
   }
 
+  // ---------- company lunch (weekdays) ----------
+  // state.companyMenu = {ISO: {lunch: [items]}} — typed in from the
+  // company's weekly menu photo. The plan shows the main items only; rice,
+  // kimchi and drinks are in the full list when you tap it.
+  var CO_BASIC = /^(백미밥|잡곡밥|보리밥|흑미밥|현미밥|쌀밥)|\/|김치$|깍두기|단무지|주스$|홍차|미숫가루|요구르트|우유|식혜|음료/;
+  function isCoBasic(x){ return CO_BASIC.test(x) && !/비빔밥|볶음밥|덮밥/.test(x); }
+  function companyLunch(iso){
+    var m = (state.companyMenu || {})[iso];
+    return m && m.lunch && m.lunch.length ? m.lunch : null;
+  }
+  function companyShort(items){
+    var main = items.filter(function(x){ return !isCoBasic(x); });
+    return (main.length ? main : items).slice(0, 3).join(" · ");
+  }
+  function companyRowHTML(iso, where){
+    var items = companyLunch(iso);
+    if (!items || isOffDay(state, parseISO(iso))) return "";
+    return where === "today"
+      ? '<div class="tc-meal" data-co="' + iso + '"><span class="tc-tag">🏢</span><span class="tc-dish pk"><span class="pk-txt">' + esc(companyShort(items)) + '</span></span></div>'
+      : '<div class="meal-row co-row" data-co="' + iso + '"><span class="meal-tag">🏢점심</span><span class="meal-dish">' + esc(companyShort(items)) + '</span><span class="chev">›</span></div>';
+  }
+  function openCompanySheet(iso){
+    var items = companyLunch(iso) || [];
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML = '<div class="sheet"><h3>🏢 ' + dispDate(parseISO(iso)) + ' 회사 점심</h3>' +
+      '<ul class="co-list">' + items.map(function(x){
+        return '<li class="' + (isCoBasic(x) ? "basic" : "") + '">' + esc(x) + '</li>';
+      }).join("") + '</ul>' +
+      '<p class="hint">새 식단표는 사진으로 보내주면 넣어드려요.</p>' +
+      '<div class="actions"><button class="btn danger" type="button" id="coDel">이 날 지우기</button><button class="btn" type="button" id="coClose">닫기</button></div></div>';
+    host.innerHTML = ""; host.appendChild(overlay);
+    function close(){ host.innerHTML = ""; }
+    overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
+    overlay.querySelector("#coClose").onclick = close;
+    overlay.querySelector("#coDel").onclick = function(){
+      if (!confirm(dispDate(parseISO(iso)) + " 회사 점심을 지울까요?")) return;
+      delete state.companyMenu[iso];
+      close(); scheduleSave(); renderAll();
+      showToast("지웠어요");
+    };
+  }
+
   // big "today" card at the top, so a glance is enough
   function renderTodayCard(){
     var host = document.getElementById("todayCard");
@@ -1394,6 +1446,7 @@
     if (!todays.length){ host.innerHTML = ""; return; }
     host.innerHTML = '<div class="today-card">' +
       '<div class="tc-date">오늘 · ' + dispDate(currentToday) + '</div>' +
+      companyRowHTML(toISO(currentToday), "today") +
       todays.map(function(s){
         if (s.isPack){
           var pk = lastPack[s.dateISO];
@@ -1420,7 +1473,8 @@
       '</div>';
     Array.prototype.forEach.call(host.querySelectorAll(".tc-meal"), function(row){
       row.onclick = function(){
-        if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
+        if (row.hasAttribute("data-co")) openCompanySheet(row.getAttribute("data-co"));
+        else if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
         else openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal"));
       };
     });
