@@ -401,6 +401,7 @@
   .pk-line{display:flex;gap:8px;line-height:1.4;padding:1px 0;}
   .pk-who{flex:none;min-width:2.4em;font-weight:700;color:var(--accent2);}
   .pk-txt{flex:1;min-width:0;word-break:keep-all;overflow-wrap:break-word;}
+  .pk-nut{display:block;font-size:11.5px;color:var(--ink-faint);font-weight:400;}
   .pack-row .meal-dish{font-size:14px;}
   .tc-dish.pk{font-size:15.5px;font-family:inherit;font-weight:600;}
   .tc-diet{font-size:12.5px;color:var(--accent2);margin:0 0 4px 40px;}
@@ -1637,7 +1638,7 @@
     slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
     var html = "";
     if (dietModeOf(state) === "pack" && packSeq("rice").length <= 3){
-      html += '<div class="conn-note" style="font-size:13px;">🍚 다이어트용 삼각김밥·주먹밥을 사야 해요 (남은 ' + packSeq("rice").length + '개)</div>';
+      html += '<div class="conn-note" style="font-size:13px;">🍚 다이어트용 주먹밥을 사야 해요 (남은 ' + packSeq("rice").length + '개)</div>';
     }
     Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
       var arr = byWeek[wk], wki = parseInt(wk,10);
@@ -2195,6 +2196,22 @@
     return a;
   }
   function packSkipOf(iso){ return (state.packSkip || {})[iso] || ""; }
+  // nutrition per piece (kcal, protein g) stored on the fridge item;
+  // est = estimated (not found for that exact product)
+  function packNutri(id, log){
+    var it = itemById(id);
+    if (!it){ var l = (log || []).filter(function(x){ return x.id === id; })[0]; it = l || {}; }
+    return {kcal: +it.kcal || 0, protein: +it.protein || 0, est: !!it.est};
+  }
+  function nutriSum(ids, log){
+    var t = {kcal: 0, protein: 0, est: false};
+    (ids || []).forEach(function(id){ var n = packNutri(id, log); t.kcal += n.kcal; t.protein += n.protein; t.est = t.est || n.est; });
+    return t;
+  }
+  function nutriTxt(n){
+    if (!n.kcal && !n.protein) return "";
+    return (n.est ? "≈" : "") + Math.round(n.kcal) + "kcal · 단백질 " + Math.round(n.protein) + "g";
+  }
   function packName(id, log){
     var it = itemById(id);
     if (it) return it.name;
@@ -2218,12 +2235,13 @@
     var nm = packNames();
     var me = (a.me || []).map(function(id){ return packName(id, log); }).join(" + ");
     var you = (a.you || []).map(function(id){ return packName(id, log); }).join(" + ");
-    function line(who, txt, skipped, extra){
+    function line(who, txt, skipped, extra, ids){
+      var nt = nutriTxt(nutriSum(ids, log));
       return '<span class="pk-line"><span class="pk-who">' + esc(who) + '</span><span class="pk-txt">' +
-        (skipped ? '🚫 안 먹음' : (done ? "✅ " : "") + esc(txt || "-") + (extra || "")) + '</span></span>';
+        (skipped ? '🚫 안 먹음' : (done ? "✅ " : "") + esc(txt || "-") + (extra || "") + (nt ? '<small class="pk-nut">' + nt + '</small>' : '')) + '</span></span>';
     }
-    return line(nm.me, me, a.skipWho === "me", a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '') +
-      line(nm.you, you || "집밥", a.skipWho === "you");
+    return line(nm.me, me, a.skipWho === "me", a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '', a.me) +
+      line(nm.you, you || "집밥", a.skipWho === "you", "", a.you);
   }
   // date -> plan for the pack days in [from, to]: past/eaten days from the
   // log, upcoming ones simulated from the queues
@@ -2255,7 +2273,7 @@
     var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0, packSkipOf(iso));
     var items = a.ids.map(function(id, i){
       var it = itemById(id);
-      return {id: id, name: it.name, line: it.line || "", pack: it.pack, who: i < a.me.length ? "me" : "you"};
+      return {id: id, name: it.name, line: it.line || "", pack: it.pack, who: i < a.me.length ? "me" : "you", kcal: it.kcal || 0, protein: it.protein || 0, est: !!it.est};
     });
     a.ids.forEach(function(id){ var it = itemById(id); it.qty = Math.round(it.qty) - 1; });
     state.inventory = inventory().filter(function(it){ return it.qty > 1e-9; });
@@ -2274,7 +2292,7 @@
     (log.items || []).forEach(function(x){
       var it = itemById(x.id);
       if (it) it.qty = Math.round(it.qty) + 1;
-      else inventory().push({id: x.id, name: x.name, qty: 1, unit: "개", exp: "", pack: x.pack, line: x.line});
+      else inventory().push({id: x.id, name: x.name, qty: 1, unit: "개", exp: "", pack: x.pack, line: x.line, kcal: x.kcal || 0, protein: x.protein || 0, est: !!x.est});
       (x.pack === "rice" ? rice : chicken).push(x.id);
     });
     state.packSeq.rice = rice.concat(state.packSeq.rice || []);
@@ -2335,6 +2353,9 @@
       if (it) it.qty = Math.round(it.qty) + qty;
       else {
         it = {id: "inv" + Date.now() + Math.floor(Math.random()*100000), name: name, qty: qty, unit: "개", exp: "", pack: kind, line: en.line || name.split(" ")[0]};
+        if (en.kcal) it.kcal = en.kcal;
+        if (en.protein) it.protein = en.protein;
+        if (en.est) it.est = true;
         inventory().push(it);
       }
       fresh[kind].push({id: it.id, line: it.line || it.name, n: qty});
@@ -2457,7 +2478,9 @@
     var nr = packSeq("rice").length, nc = packSeq("chicken").length, days = packDaysLeft();
     function rows(list){
       return list.map(function(it){
-        return '<div class="inv-row" style="cursor:default;"><span class="nm" data-inv="' + esc(it.id) + '" style="cursor:pointer;">' + esc(it.name) + '</span>' +
+        var nt = nutriTxt({kcal: +it.kcal || 0, protein: +it.protein || 0, est: !!it.est});
+        return '<div class="inv-row" style="cursor:default;"><span class="nm" data-inv="' + esc(it.id) + '" style="cursor:pointer;">' + esc(it.name) +
+            (nt ? '<small class="pk-nut">1개 ' + nt + '</small>' : '') + '</span>' +
           '<button class="btn" type="button" data-pk-minus="' + esc(it.id) + '" style="padding:4px 11px;">−</button>' +
           '<span class="amt" style="min-width:30px;text-align:center;">' + Math.round(it.qty) + '개</span>' +
           '<button class="btn" type="button" data-pk-plus="' + esc(it.id) + '" style="padding:4px 11px;">+</button></div>';
@@ -2466,7 +2489,7 @@
     var known = rice.concat(chicken);
     var templates = state.packTemplates || [];
     host.innerHTML = '<div class="inv-group' + (nr <= 3 ? " warn" : "") + '"><h2>💪 다이어트 팩 — 밥 ' + nr + ' · 닭 ' + nc + ' (평일 ' + days + '일치)</h2>' +
-      (nr <= 3 ? '<div class="inv-log"><span>🍚 밥(삼김·주먹밥)이 ' + nr + '개 남았어요. 사야 해요! 밥이 없으면 "닭 2개"와 "집밥"이 번갈아 나와요.</span></div>' : '') +
+      (nr <= 3 ? '<div class="inv-log"><span>🍚 밥(주먹밥)이 ' + nr + '개 남았어요. 사야 해요! 밥이 없으면 "닭 2개"와 "집밥"이 번갈아 나와요.</span></div>' : '') +
       templates.map(function(t, i){
         var n = t.items.reduce(function(a, x){ return a + (Array.isArray(x) ? x[1] : x.qty); }, 0);
         return '<div class="inv-log"><button class="btn primary block" type="button" data-pk-tpl="' + i + '">📦 ' + esc(t.name) + ' 한 번 더 넣기 (' + n + '개)</button></div>';
@@ -2474,12 +2497,12 @@
       '<div class="inv-log" style="flex-direction:column;align-items:stretch;gap:6px;">' +
         '<b style="color:var(--ink);">➕ 채워넣기</b>' +
         '<div style="display:flex;gap:6px;">' +
-          '<input type="text" id="pkName" list="pkNames" placeholder="이름 (예: 데리야끼 삼김)" autocomplete="off" style="flex:1;min-width:0;' + PACK_INPUT + '">' +
+          '<input type="text" id="pkName" list="pkNames" placeholder="이름 (예: 데리야끼 주먹밥)" autocomplete="off" style="flex:1;min-width:0;' + PACK_INPUT + '">' +
           '<datalist id="pkNames">' + known.map(function(it){ return '<option value="' + esc(it.name) + '">'; }).join("") + '</datalist>' +
           '<input type="number" id="pkQty" placeholder="개수" min="1" inputmode="numeric" style="width:64px;' + PACK_INPUT + '">' +
         '</div>' +
         '<div style="display:flex;gap:6px;">' +
-          '<select id="pkKind" style="flex:1;' + PACK_INPUT + '"><option value="rice">🍚 밥 (삼김·주먹밥)</option><option value="chicken">🍗 닭가슴살</option></select>' +
+          '<select id="pkKind" style="flex:1;' + PACK_INPUT + '"><option value="rice">🍚 밥 (주먹밥 등)</option><option value="chicken">🍗 닭가슴살</option></select>' +
           '<button class="btn primary" type="button" id="pkAdd">넣기</button>' +
         '</div>' +
         '<span class="hint">있는 품목은 개수만 늘어나요. 새로 넣은 건 이미 정해진 날들 뒤에 붙어서, 내일 메뉴는 그대로예요.</span>' +
@@ -2532,6 +2555,9 @@
     overlay.innerHTML = '<div class="sheet"><h3>🧊 ' + esc(it.name) + '</h3>' +
       '<div class="field"><label>이름</label><input type="text" id="ivName" value="' + esc(it.name) + '"></div>' +
       '<div class="field"><label>남은 양 · 단위</label>' + unitPickerHTML("iv", Math.round(it.qty*1000)/1000, it.unit || "") + '</div>' +
+      (it.pack ? '<div class="field"><label>1개당 칼로리 · 단백질' + (it.est ? ' (지금은 추정값)' : '') + '</label><div class="unit-pick">' +
+        '<input type="number" id="ivKcal" inputmode="decimal" placeholder="kcal" value="' + (it.kcal || "") + '">' +
+        '<input type="number" id="ivProt" inputmode="decimal" placeholder="단백질 g" value="' + (it.protein || "") + '"></div></div>' : '') +
       '<div class="field"><label>유통기한</label><div id="ivExpHost"></div>' +
         '<label class="check" style="margin-top:8px;"><input type="checkbox" id="ivNoExp"' + (it.exp ? '' : ' checked') + '> 유통기한 없음</label></div>' +
       '<div class="actions"><button class="btn danger" type="button" id="ivDel">다 먹음·버림</button>' +
@@ -2553,6 +2579,11 @@
       var a = readPicker("iv");
       if (!name || isNaN(a.qty)){ showToast("이름과 양을 확인해주세요"); return; }
       it.name = name; it.qty = a.qty; it.unit = a.unit;
+      if (it.pack){
+        var k = parseFloat(overlay.querySelector("#ivKcal").value), pr = parseFloat(overlay.querySelector("#ivProt").value);
+        if (!isNaN(k) && k !== +it.kcal){ it.kcal = k; delete it.est; }
+        if (!isNaN(pr) && pr !== +it.protein){ it.protein = pr; delete it.est; }
+      }
       it.exp = overlay.querySelector("#ivNoExp").checked ? "" : kdateRead("ivExp");
       if (it.pack) rebuildPackSeq();
       if (!(it.qty > 0)) state.inventory = inventory().filter(function(x){ return x.id !== id; });
