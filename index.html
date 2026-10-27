@@ -512,6 +512,9 @@
       </div>
       <div class="field-row" id="dietNameRow" style="margin-top:10px;" hidden><label>누가?</label>
         <input type="text" class="search" id="inDietName" placeholder="예: 나, 여자친구" style="margin:0;flex:1;"></div>
+      <div class="field-row" id="packNameRow" style="margin-top:10px;" hidden><label>이름</label>
+        <input type="text" class="search" id="inPackMe" placeholder="2개 먹는 사람 (나)" style="margin:0;flex:1;min-width:0;">
+        <input type="text" class="search" id="inPackYou" placeholder="1개 먹는 사람 (여친)" style="margin:0;flex:1;min-width:0;"></div>
       <p class="hint" id="dietHint" style="margin-top:8px;"></p>
     </div>
 
@@ -994,6 +997,10 @@
   }
   function isEatout(st, name){ return dishCats(st, name).indexOf("eatout") !== -1; }
   function eatoutGapOf(st){ return st.eatoutGap == null ? 3 : (parseInt(st.eatoutGap,10) || 0); }
+  // weekday (non-holiday) dinners from packStart are the diet pack
+  function packDayFor(st, e){
+    return st.dietMode === "pack" && !!st.packStart && toISO(e) >= st.packStart && !isOffDay(st, e);
+  }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
     opts = opts || {};
@@ -1122,6 +1129,13 @@
         var final = "", isOv = false;
         var fromQueue = planned && !(meal === "lunch" && lunchOnlyFromHistory);
         var dietSlot = isDietSlot(st, e, meal) && dietList.length > 0;
+        // pack days: weekday dinner is the diet pack, not a dish from the
+        // queue (a locked 외식/배달 still wins)
+        if (!ov && meal === "dinner" && packDayFor(st, e)){
+          if (e >= from) slots.push({epoch: e, dateISO: iso, weekIdx: Math.floor((e - monday)/7), meal: meal,
+            final: "", isOverride: false, isToday: e === today, isPast: past, q: mainQ.pos, isPack: true});
+          continue;
+        }
         if (ov){
           final = String(ov.dish).trim(); isOv = true;
         } else if (fromQueue && dishes.length){
@@ -1327,14 +1341,15 @@
       var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
         dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') +
         (holiday ? ' <span class="lock-pill">🎌 ' + esc(holiday) + '</span>' : '') + '</div>';
-      var pk = lastPack[s0.dateISO];
-      if (pk){
-        html += '<div class="meal-row pack-row" data-pack="' + s0.dateISO + '">' +
-          '<span class="meal-tag">💪점심</span>' +
-          '<span class="meal-dish' + (pk.type === "none" ? " empty" : "") + '">' + (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) + '</span>' +
-          '<span class="chev">›</span></div>';
-      }
       daySlots.forEach(function(s){
+        if (s.isPack){
+          var pk = lastPack[s.dateISO];
+          html += '<div class="meal-row pack-row" data-pack="' + s.dateISO + '">' +
+            '<span class="meal-tag">💪저녁</span>' +
+            '<span class="meal-dish' + (!pk || pk.type === "none" ? " empty" : "") + '">' + (pk ? (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) : "다이어트 팩") + '</span>' +
+            '<span class="chev">›</span></div>';
+          return;
+        }
         html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
           '<span class="meal-dish' + (s.final? "":" empty") + '">' + (s.final ? esc(s.final) : (s.isPast ? "기록 없음" : "미정")) + '</span>' +
@@ -1371,12 +1386,14 @@
     var todays = slots.filter(function(s){ return s.epoch === currentToday; });
     var tomorrow = slots.filter(function(s){ return s.epoch === currentToday + 1; });
     if (!todays.length){ host.innerHTML = ""; return; }
-    var pkToday = lastPack[toISO(currentToday)];
     host.innerHTML = '<div class="today-card">' +
       '<div class="tc-date">오늘 · ' + dispDate(currentToday) + '</div>' +
-      (pkToday ? '<div class="tc-meal" data-pack="' + toISO(currentToday) + '"><span class="tc-tag">💪</span>' +
-        '<span class="tc-dish" style="font-size:19px;">' + (pkToday.done ? "✅ " : "") + esc(packText(pkToday, pkToday.log)) + '</span></div>' : '') +
       todays.map(function(s){
+        if (s.isPack){
+          var pk = lastPack[s.dateISO];
+          return '<div class="tc-meal" data-pack="' + s.dateISO + '"><span class="tc-tag">💪</span>' +
+            '<span class="tc-dish" style="font-size:18px;">' + (pk ? (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) : "다이어트 팩") + '</span></div>';
+        }
         return '<div class="tc-meal" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="tc-tag">' + MEAL_LABEL[s.meal] + '</span>' +
           '<span class="tc-dish' + (s.final ? "" : " empty") + '">' + (s.final ? esc(s.final) : "미정") + '</span>' +
@@ -1388,6 +1405,7 @@
         return total ? '<div class="tc-kcal">오늘 1인 약 ' + total + 'kcal</div>' : '';
       })() +
       (tomorrow.length ? '<div class="tc-next">내일 ' + tomorrow.map(function(s){
+        if (s.isPack) return '💪 <b>다이어트 팩</b>';
         return MEAL_LABEL[s.meal] + ' <b>' + (s.final ? esc(s.final) : "미정") + '</b>';
       }).join(" · ") + '</div>' : '') +
       (expiringSoon().length ? '<div class="tc-warn">🧊 빨리 먹어야 해요: ' + expiringSoon().slice(0, 4).map(function(it){
@@ -1479,6 +1497,7 @@
       var cls = "mcell" + (isOffDay(state, e) ? " weekend" : "") + (e === today ? " today" : "") + (e < today ? " past" : "");
       html += '<div class="' + cls + '" data-epoch="' + e + '"><div class="mday">' + fromEpochDay(e).d + '</div>';
       (byDate[iso] || []).forEach(function(s){
+        if (s.isPack){ html += '<div class="mm">💪팩</div>'; return; }
         if (s.isPast && !s.final) return; // nothing recorded for that day
         var c = "mm" + (s.meal === "lunch" ? " lunch" : "") + (s.isOverride ? " locked" : "") + (s.final ? "" : " empty");
         var text = s.final ? esc(s.final) : (s.isPast ? "-" : "미정");
@@ -1599,6 +1618,8 @@
     Array.prototype.forEach.call(document.querySelectorAll("#shopSeg button"), function(b){
       b.classList.toggle("on", b.getAttribute("data-shop") === shopMode);
     });
+    // diet-pack dinners need no shopping (the pack is already in the fridge)
+    slots = (slots || []).filter(function(s){ return !s.isPack; });
     if (shopMode === "merged") renderShopMerged(slots); else renderShopMeals(slots);
   }
 
@@ -1786,12 +1807,17 @@
     var dm = dietModeOf(state);
     Array.prototype.forEach.call(document.querySelectorAll("#dietSeg button"), function(b){ b.classList.toggle("on", b.getAttribute("data-diet") === dm); });
     document.getElementById("dietNameRow").hidden = dm !== "one";
+    document.getElementById("packNameRow").hidden = dm !== "pack";
+    ["inPackMe","inPackYou"].forEach(function(id){
+      var el = document.getElementById(id);
+      if (document.activeElement !== el) el.value = ((state.packNames || {})[id === "inPackMe" ? "me" : "you"]) || "";
+    });
     var dn = document.getElementById("inDietName");
     if (document.activeElement !== dn) dn.value = state.dietName || "";
     var nDiet = (state.dishes || []).filter(function(n){ return isDietDish(state, n); }).length;
     document.getElementById("dietHint").textContent =
       dm === "both" ? "평일 저녁은 다이어트 메뉴(💪, 지금 " + nDiet + "개)로, 주말·휴일은 평소 메뉴로 짜요." :
-      dm === "pack" ? "평일 점심은 냉장고의 다이어트 팩(밥 1 + 닭가슴살 1)으로, 식단표 메뉴는 평소대로 짜요. 팩은 냉장고 탭에서 관리해요." :
+      dm === "pack" ? "평일 저녁(휴일 제외)은 냉장고의 다이어트 팩으로: " + packNames().me + " 2개(밥 1 + 닭 1), " + packNames().you + " 1개(닭). 식단표 메뉴는 주말·휴일에만 짜요. 평일 저녁에 외식·배달을 고정하면 그날 팩은 건너뛰어요." :
       dm === "one" ? "메뉴는 평소대로 두고, 평일 저녁마다 " + (state.dietName || "다이어트하는 사람") + "용으로 덜 먹는 방법과 대략적인 칼로리를 보여줘요." :
       "다이어트 메뉴(💪)는 식단에 안 나와요. 칼로리는 메뉴마다 대략 표시돼요.";
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
@@ -2140,17 +2166,23 @@
     if (seq.length !== total){ rebuildPackSeq(); return state.packSeq[kind].slice(); }
     return seq;
   }
-  function isPackDay(e){
-    return dietModeOf(state) === "pack" && !!state.packStart && toISO(e) >= state.packStart && !isOffDay(state, e);
-  }
-  // what the next pack day gets, from the front of the queues
+  function isPackDay(e){ return packDayFor(state, e); }
+  function packNames(){ var n = state.packNames || {}; return {me: n.me || "나", you: n.you || "여친"}; }
+  // What the next pack day gets, from the front of the queues.
+  // me: 밥 1 + 닭 1 (no rice left: 닭 2개 / 집밥 take turns)
+  // you: 닭 1 (on 집밥 days both eat 집밥)
   function nextPackMeal(rice, chicken, alt){
-    if (rice.length && chicken.length) return {type: "meal", ids: [rice[0], chicken[0]], r: 1, c: 1};
-    if (rice.length) return {type: "rice", ids: [rice[0]], r: 1, c: 0};
-    if (!chicken.length) return {type: "none", ids: [], r: 0, c: 0};
-    if (alt % 2 === 1) return {type: "home", ids: [], r: 0, c: 0, alt: true};
-    if (chicken.length >= 2) return {type: "chicken2", ids: [chicken[0], chicken[1]], r: 0, c: 2, alt: true};
-    return {type: "chicken1", ids: [chicken[0]], r: 0, c: 1, alt: true};
+    var a;
+    if (rice.length && chicken.length) a = {type: "meal", me: [rice[0], chicken[0]], r: 1, c: 1};
+    else if (rice.length) a = {type: "rice", me: [rice[0]], r: 1, c: 0};
+    else if (!chicken.length) return {type: "none", me: [], you: [], ids: [], r: 0, c: 0};
+    else if (alt % 2 === 1) return {type: "home", me: [], you: [], ids: [], r: 0, c: 0, alt: true};
+    else if (chicken.length >= 2) a = {type: "chicken2", me: [chicken[0], chicken[1]], r: 0, c: 2, alt: true};
+    else a = {type: "chicken1", me: [chicken[0]], r: 0, c: 1, alt: true};
+    a.you = chicken.length > a.c ? [chicken[a.c]] : [];
+    a.c += a.you.length;
+    a.ids = a.me.concat(a.you);
+    return a;
   }
   function packName(id, log){
     var it = itemById(id);
@@ -2159,14 +2191,14 @@
     return l ? l.name : "";
   }
   function packText(a, log){
-    var names = a.ids.map(function(id){ return packName(id, log); });
     if (a.skip) return "건너뜀";
-    if (a.type === "meal") return names.join(" + ");
-    if (a.type === "chicken2") return "닭 2개: " + names.join(" + ") + " (밥 사야 해요)";
-    if (a.type === "chicken1") return "닭 1개: " + names[0];
-    if (a.type === "rice") return names[0] + " (닭가슴살 없음)";
     if (a.type === "home") return "집밥 (밥 반 공기 + 반찬)";
-    return "다이어트 팩을 다 먹었어요";
+    if (a.type === "none") return "다이어트 팩을 다 먹었어요";
+    var nm = packNames();
+    var me = (a.me || []).map(function(id){ return packName(id, log); }).join(" + ");
+    var you = (a.you || []).map(function(id){ return packName(id, log); }).join(" + ");
+    return nm.me + ": " + (me || "-") + (a.type === "chicken2" ? " (밥 사야 해요)" : a.type === "rice" ? " (닭 없음)" : "") +
+      " · " + nm.you + ": " + (you || "집밥");
   }
   // date -> plan for the pack days in [from, to]: past/eaten days from the
   // log, upcoming ones simulated from the queues
@@ -2179,10 +2211,15 @@
       if (!isPackDay(e)) continue;
       var iso = toISO(e), log = cons[iso + "|pack"];
       if (log){
-        map[iso] = {type: log.type || "none", ids: (log.items || []).map(function(x){ return x.id; }), done: !log.skip, skip: !!log.skip, log: log.items};
+        var items = log.items || [];
+        map[iso] = {type: log.type || "none", ids: items.map(function(x){ return x.id; }),
+          me: items.filter(function(x){ return x.who !== "you"; }).map(function(x){ return x.id; }),
+          you: items.filter(function(x){ return x.who === "you"; }).map(function(x){ return x.id; }),
+          done: !log.skip, skip: !!log.skip, log: items};
         continue;
       }
       if (e < currentToday) continue; // not eaten yet but past: autoPack handles it
+      if (packEatenOut(e)) continue;   // 외식/배달 locked that evening
       var a = nextPackMeal(rice, chicken, alt);
       rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++;
       map[iso] = a;
@@ -2191,9 +2228,9 @@
   }
   function eatPack(iso){
     var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0);
-    var items = a.ids.map(function(id){
+    var items = a.ids.map(function(id, i){
       var it = itemById(id);
-      return {id: id, name: it.name, line: it.line || "", pack: it.pack};
+      return {id: id, name: it.name, line: it.line || "", pack: it.pack, who: i < a.me.length ? "me" : "you"};
     });
     a.ids.forEach(function(id){ var it = itemById(id); it.qty = Math.round(it.qty) - 1; });
     state.inventory = inventory().filter(function(it){ return it.qty > 1e-9; });
@@ -2227,12 +2264,18 @@
     }).sort();
     return keys.length ? keys[keys.length - 1].split("|")[0] : "";
   }
-  // finished weekday lunches eat their pack items once, in date order
+  // a dinner lock (외식, 배달, anything) on a pack day means no pack that day
+  function packEatenOut(e){
+    var iso = toISO(e);
+    return (state.overrides || []).some(function(o){ return o && o.date === iso && o.meal === "dinner"; });
+  }
+  // finished weekday dinners eat their pack items once, in date order
   function autoPack(today){
     if (dietModeOf(state) !== "pack" || !state.packStart) return false;
     var changed = false, cons = state.consumed = state.consumed || {};
     for (var e = parseISO(state.packStart); e < today; e++){
       if (!isPackDay(e) || cons[toISO(e) + "|pack"]) continue;
+      if (packEatenOut(e)){ cons[toISO(e) + "|pack"] = {skip: true}; changed = true; continue; }
       eatPack(toISO(e)); changed = true;
     }
     return changed;
@@ -2288,7 +2331,7 @@
     var host = document.getElementById("sheetHost");
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
-    overlay.innerHTML = '<div class="sheet"><h3>💪 ' + dispDate(e) + ' 다이어트 점심</h3>' +
+    overlay.innerHTML = '<div class="sheet"><h3>💪 ' + dispDate(e) + ' 다이어트 저녁</h3>' +
       '<p class="sub">' + esc(packText(a, a.log)) + (a.done ? ' · 먹었어요 ✅' : '') + '</p>' +
       '<div class="act-grid">' +
         (isToday && !a.done && !a.skip && a.ids.length ? '<button class="btn primary wide" type="button" id="pkEat">🍳 지금 먹었어요 (냉장고에서 빼기)</button>' : '') +
@@ -2296,7 +2339,7 @@
         (canUndo ? '<button class="btn wide" type="button" id="pkUndo">↩ 먹은 거 되돌리기</button>' : '') +
         (a.skip && isToday ? '<button class="btn wide" type="button" id="pkUnskip">건너뛰기 취소</button>' : '') +
       '</div>' +
-      '<p class="hint">평일 점심에 자동으로 정해지고, 하루가 지나면 알아서 냉장고에서 빠져요. 팩 재고는 냉장고 탭에서 볼 수 있어요.</p>' +
+      '<p class="hint">평일 저녁마다 자동으로 정해지고, 하루가 지나면 알아서 냉장고에서 빠져요. 외식하는 날은 "건너뛰기"나 외식 고정을 하면 돼요. 팩 재고는 냉장고 탭에서 볼 수 있어요.</p>' +
       '<div class="actions"><button class="btn" type="button" id="pkClose">닫기</button></div></div>';
     host.innerHTML = ""; host.appendChild(overlay);
     function close(){ host.innerHTML = ""; }
@@ -2305,7 +2348,7 @@
     overlay.querySelector("#pkClose").onclick = close;
     var b;
     if ((b = overlay.querySelector("#pkEat"))) b.onclick = function(){ eatPack(iso); done("냉장고에서 뺐어요 💪"); };
-    if ((b = overlay.querySelector("#pkSkip"))) b.onclick = function(){ state.consumed = state.consumed || {}; state.consumed[key] = {skip: true}; done("오늘 다이어트 점심은 건너뛰었어요"); };
+    if ((b = overlay.querySelector("#pkSkip"))) b.onclick = function(){ state.consumed = state.consumed || {}; state.consumed[key] = {skip: true}; done("오늘 다이어트 팩은 건너뛰었어요"); };
     if ((b = overlay.querySelector("#pkUndo"))) b.onclick = function(){ uneatPack(iso); done("냉장고에 다시 넣었어요"); };
     if ((b = overlay.querySelector("#pkUnskip"))) b.onclick = function(){ delete state.consumed[key]; done("건너뛰기를 취소했어요"); };
   }
@@ -2834,7 +2877,14 @@
       state.dietMode = b.getAttribute("data-diet");
       scheduleSave(); renderAll();
       if (state.dietMode === "pack" && !state.packStart) state.packStart = toISO(currentToday);
-      showToast(state.dietMode === "pack" ? "평일 점심은 다이어트 팩으로 보여줄게요 💪" : state.dietMode === "both" ? "평일 저녁은 다이어트 메뉴로 짤게요 💪" : state.dietMode === "one" ? "평일 저녁에 다이어트 팁을 보여줄게요 💪" : "다이어트 모드를 껐어요");
+      showToast(state.dietMode === "pack" ? "평일 저녁은 다이어트 팩으로 보여줄게요 💪" : state.dietMode === "both" ? "평일 저녁은 다이어트 메뉴로 짤게요 💪" : state.dietMode === "one" ? "평일 저녁에 다이어트 팁을 보여줄게요 💪" : "다이어트 모드를 껐어요");
+    };
+  });
+  ["inPackMe","inPackYou"].forEach(function(id){
+    document.getElementById(id).onchange = function(e){
+      state.packNames = state.packNames || {};
+      state.packNames[id === "inPackMe" ? "me" : "you"] = e.target.value.trim();
+      scheduleSave(); renderAll();
     };
   });
   document.getElementById("inDietName").onchange = function(e){
