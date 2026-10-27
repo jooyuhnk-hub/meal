@@ -398,6 +398,11 @@
   .tc-warn{font-size:12.5px;color:var(--warn-ink);margin-top:6px;}
   .kcal{font-size:11px;color:var(--ink-faint);flex:none;}
   .pack-row .meal-tag{width:auto;white-space:nowrap;color:var(--accent2);}
+  .pk-line{display:flex;gap:8px;line-height:1.4;padding:1px 0;}
+  .pk-who{flex:none;min-width:2.4em;font-weight:700;color:var(--accent2);}
+  .pk-txt{flex:1;min-width:0;word-break:keep-all;overflow-wrap:break-word;}
+  .pack-row .meal-dish{font-size:14px;}
+  .tc-dish.pk{font-size:15.5px;font-family:inherit;font-weight:600;}
   .tc-diet{font-size:12.5px;color:var(--accent2);margin:0 0 4px 40px;}
   .tc-kcal{font-size:12px;color:var(--ink-dim);margin-top:4px;}
   .inv-form label.lb{display:block;font-size:12.5px;color:var(--ink-dim);font-weight:600;margin:0 0 5px;}
@@ -1346,7 +1351,7 @@
           var pk = lastPack[s.dateISO];
           html += '<div class="meal-row pack-row" data-pack="' + s.dateISO + '">' +
             '<span class="meal-tag">💪저녁</span>' +
-            '<span class="meal-dish' + (!pk || pk.type === "none" ? " empty" : "") + '">' + (pk ? (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) : "다이어트 팩") + '</span>' +
+            '<span class="meal-dish' + (!pk || pk.type === "none" ? " empty" : "") + '">' + (pk ? packHTML(pk, pk.log, pk.done) : "다이어트 팩") + '</span>' +
             '<span class="chev">›</span></div>';
           return;
         }
@@ -1392,7 +1397,7 @@
         if (s.isPack){
           var pk = lastPack[s.dateISO];
           return '<div class="tc-meal" data-pack="' + s.dateISO + '"><span class="tc-tag">💪</span>' +
-            '<span class="tc-dish" style="font-size:18px;">' + (pk ? (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) : "다이어트 팩") + '</span></div>';
+            '<span class="tc-dish pk">' + (pk ? packHTML(pk, pk.log, pk.done) : "다이어트 팩") + '</span></div>';
         }
         return '<div class="tc-meal" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="tc-tag">' + MEAL_LABEL[s.meal] + '</span>' +
@@ -2200,6 +2205,17 @@
     return nm.me + ": " + (me || "-") + (a.type === "chicken2" ? " (밥 사야 해요)" : a.type === "rice" ? " (닭 없음)" : "") +
       " · " + nm.you + ": " + (you || "집밥");
   }
+  // same as packText, but one line per person (광훈 on the first, 수아 on the second)
+  function packHTML(a, log, done){
+    var mark = done ? "✅ " : "";
+    if (a.skip || a.type === "home" || a.type === "none") return '<span class="pk-line"><span class="pk-txt">' + mark + esc(packText(a, log)) + '</span></span>';
+    var nm = packNames();
+    var me = (a.me || []).map(function(id){ return packName(id, log); }).join(" + ");
+    var you = (a.you || []).map(function(id){ return packName(id, log); }).join(" + ");
+    return '<span class="pk-line"><span class="pk-who">' + mark + esc(nm.me) + '</span><span class="pk-txt">' + esc(me || "-") +
+        (a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '') + '</span></span>' +
+      '<span class="pk-line"><span class="pk-who">' + (mark ? "　 " : "") + esc(nm.you) + '</span><span class="pk-txt">' + esc(you || "집밥") + '</span></span>';
+  }
   // date -> plan for the pack days in [from, to]: past/eaten days from the
   // log, upcoming ones simulated from the queues
   function packPlan(from, to){
@@ -2332,7 +2348,7 @@
     var overlay = document.createElement("div");
     overlay.className = "sheet-overlay";
     overlay.innerHTML = '<div class="sheet"><h3>💪 ' + dispDate(e) + ' 다이어트 저녁</h3>' +
-      '<p class="sub">' + esc(packText(a, a.log)) + (a.done ? ' · 먹었어요 ✅' : '') + '</p>' +
+      '<p class="sub">' + packHTML(a, a.log, a.done) + '</p>' +
       '<div class="act-grid">' +
         (isToday && !a.done && !a.skip && a.ids.length ? '<button class="btn primary wide" type="button" id="pkEat">🍳 지금 먹었어요 (냉장고에서 빼기)</button>' : '') +
         (isToday && !a.done && !a.skip ? '<button class="btn wide" type="button" id="pkSkip">오늘은 건너뛰기 (외식 등)</button>' : '') +
