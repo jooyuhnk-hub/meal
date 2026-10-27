@@ -397,6 +397,7 @@
   .inv-log span{flex:1;line-height:1.45;}
   .tc-warn{font-size:12.5px;color:var(--warn-ink);margin-top:6px;}
   .kcal{font-size:11px;color:var(--ink-faint);flex:none;}
+  .pack-row .meal-tag{width:auto;white-space:nowrap;color:var(--accent2);}
   .tc-diet{font-size:12.5px;color:var(--accent2);margin:0 0 4px 40px;}
   .tc-kcal{font-size:12px;color:var(--ink-dim);margin-top:4px;}
   .inv-form label.lb{display:block;font-size:12.5px;color:var(--ink-dim);font-weight:600;margin:0 0 5px;}
@@ -462,6 +463,7 @@
       <button class="btn primary block" id="btnInvAdd" type="button">넣기</button>
       <p class="hint" style="margin-top:8px;">재료 이름을 적으면 레시피에서 쓰는 단위가 자동으로 골라져요. 끼니가 지나면 그 메뉴 재료만큼 자동으로 빠져요(이름과 단위가 같은 것만). 바로 빼려면 식단에서 끼니를 누르고 "🍳 해먹었어요"를 누르세요.</p>
     </div>
+    <div id="packBox"></div>
     <div id="invList"></div>
     <div id="invLog"></div>
   </section>
@@ -506,6 +508,7 @@
         <button type="button" data-diet="off">끄기</button>
         <button type="button" data-diet="one">한 사람만</button>
         <button type="button" data-diet="both">둘 다</button>
+        <button type="button" data-diet="pack">내 팩</button>
       </div>
       <div class="field-row" id="dietNameRow" style="margin-top:10px;" hidden><label>누가?</label>
         <input type="text" class="search" id="inDietName" placeholder="예: 나, 여자친구" style="margin:0;flex:1;"></div>
@@ -955,7 +958,7 @@
     "두부면 파스타","콩나물 비빔밥","오트밀 죽","밀푀유나베"];
   var DIET_KEYS = Object.create(null);
   DIET_DISHES.forEach(function(n){ DIET_KEYS[recipeKey(n)] = 1; });
-  function dietModeOf(st){ return st.dietMode === "one" || st.dietMode === "both" ? st.dietMode : "off"; }
+  function dietModeOf(st){ return st.dietMode === "one" || st.dietMode === "both" || st.dietMode === "pack" ? st.dietMode : "off"; }
   function isDietDish(st, name){
     var set = st.dishDiet || {};
     if (Object.prototype.hasOwnProperty.call(set, name)) return !!set[name];
@@ -1234,6 +1237,7 @@
   // This is what removed the visible lag on phones (three full DOM rebuilds
   // per tap, most of them for tabs no one was looking at).
   var lastSlots = null;
+  var lastPack = {};
   var tabDirty = {plan:true, shop:true, settings:true, fridge:true};
   var currentToday = todayEpochLocal();
 
@@ -1245,6 +1249,8 @@
       if (fsDoc) scheduleSave(); else saveLocal();
     }
     if (autoDeduct(currentToday)){ if (fsDoc) scheduleSave(); else saveLocal(); }
+    if (autoPack(currentToday)){ if (fsDoc) scheduleSave(); else saveLocal(); }
+    lastPack = packPlan(currentToday - 60, currentToday + 7*13);
     lastSlots = generatePlan(state, currentToday);
     tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true; tabDirty.fridge = true;
     var warnN = expiringSoon().length;
@@ -1321,6 +1327,13 @@
       var html = '<div class="daycard' + (isWeekend?" weekend":"") + (s0.isToday?" today":"") + (s0.isPast?" past":"") + '"><div class="daylabel">' +
         dispDate(s0.epoch) + (s0.isToday ? ' <span class="today-pill">오늘</span>' : '') +
         (holiday ? ' <span class="lock-pill">🎌 ' + esc(holiday) + '</span>' : '') + '</div>';
+      var pk = lastPack[s0.dateISO];
+      if (pk){
+        html += '<div class="meal-row pack-row" data-pack="' + s0.dateISO + '">' +
+          '<span class="meal-tag">💪점심</span>' +
+          '<span class="meal-dish' + (pk.type === "none" ? " empty" : "") + '">' + (pk.done ? "✅ " : "") + esc(packText(pk, pk.log)) + '</span>' +
+          '<span class="chev">›</span></div>';
+      }
       daySlots.forEach(function(s){
         html += '<div class="meal-row" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="meal-tag">' + MEAL_LABEL[s.meal] + '</span>' +
@@ -1334,7 +1347,10 @@
   }
   function wireMealRows(host){
     Array.prototype.forEach.call(host.querySelectorAll(".meal-row"), function(row){
-      row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+      row.onclick = function(){
+        if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
+        else openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal"));
+      };
     });
   }
 
@@ -1355,8 +1371,11 @@
     var todays = slots.filter(function(s){ return s.epoch === currentToday; });
     var tomorrow = slots.filter(function(s){ return s.epoch === currentToday + 1; });
     if (!todays.length){ host.innerHTML = ""; return; }
+    var pkToday = lastPack[toISO(currentToday)];
     host.innerHTML = '<div class="today-card">' +
       '<div class="tc-date">오늘 · ' + dispDate(currentToday) + '</div>' +
+      (pkToday ? '<div class="tc-meal" data-pack="' + toISO(currentToday) + '"><span class="tc-tag">💪</span>' +
+        '<span class="tc-dish" style="font-size:19px;">' + (pkToday.done ? "✅ " : "") + esc(packText(pkToday, pkToday.log)) + '</span></div>' : '') +
       todays.map(function(s){
         return '<div class="tc-meal" data-date="' + s.dateISO + '" data-meal="' + s.meal + '">' +
           '<span class="tc-tag">' + MEAL_LABEL[s.meal] + '</span>' +
@@ -1376,7 +1395,10 @@
       }).join(", ") + '</div>' : '') +
       '</div>';
     Array.prototype.forEach.call(host.querySelectorAll(".tc-meal"), function(row){
-      row.onclick = function(){ openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal")); };
+      row.onclick = function(){
+        if (row.hasAttribute("data-pack")) openPackSheet(row.getAttribute("data-pack"));
+        else openMealSheet(row.getAttribute("data-date"), row.getAttribute("data-meal"));
+      };
     });
   }
 
@@ -1588,6 +1610,9 @@
     var byWeek = {};
     slots.forEach(function(s){ (byWeek[s.weekIdx]=byWeek[s.weekIdx]||[]).push(s); });
     var html = "";
+    if (dietModeOf(state) === "pack" && packSeq("rice").length <= 3){
+      html += '<div class="conn-note" style="font-size:13px;">🍚 다이어트용 삼각김밥·주먹밥을 사야 해요 (남은 ' + packSeq("rice").length + '개)</div>';
+    }
     Object.keys(byWeek).sort(function(a,b){return a-b;}).forEach(function(wk){
       var arr = byWeek[wk], wki = parseInt(wk,10);
       var wkey = weekKeyOf(arr[0].epoch);
@@ -1766,6 +1791,7 @@
     var nDiet = (state.dishes || []).filter(function(n){ return isDietDish(state, n); }).length;
     document.getElementById("dietHint").textContent =
       dm === "both" ? "평일 저녁은 다이어트 메뉴(💪, 지금 " + nDiet + "개)로, 주말·휴일은 평소 메뉴로 짜요." :
+      dm === "pack" ? "평일 점심은 냉장고의 다이어트 팩(밥 1 + 닭가슴살 1)으로, 식단표 메뉴는 평소대로 짜요. 팩은 냉장고 탭에서 관리해요." :
       dm === "one" ? "메뉴는 평소대로 두고, 평일 저녁마다 " + (state.dietName || "다이어트하는 사람") + "용으로 덜 먹는 방법과 대략적인 칼로리를 보여줘요." :
       "다이어트 메뉴(💪)는 식단에 안 나와요. 칼로리는 메뉴마다 대략 표시돼요.";
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
@@ -2013,7 +2039,7 @@
       var p = parseIng(raw);
       if (p.qty === null || !p.qty) return;
       var need = p.qty;
-      inventory().filter(function(it){ return invMatches(it.name, p.name) && unitsMatch(it.unit, p.unit); })
+      inventory().filter(function(it){ return !it.pack && invMatches(it.name, p.name) && unitsMatch(it.unit, p.unit); })
         .sort(function(a, b){ return (a.exp || "9999") < (b.exp || "9999") ? -1 : 1; })
         .forEach(function(it){
           if (need <= 1e-9) return;
@@ -2064,8 +2090,198 @@
     if (changed) pruneConsumed();
     return changed;
   }
+  // ---------- diet pack (dietMode "pack") ----------
+  // Ready-made diet items in the fridge, tagged pack:"rice" (삼각김밥·주먹밥)
+  // or pack:"chicken" (닭가슴살 제품), each with a product line (소스통살,
+  // 스테이크…). Every weekday lunch (not holidays) from state.packStart is
+  // one rice + one chicken. When rice runs out, days alternate between two
+  // chicken items and a home meal (집밥).
+  // state.packSeq = {rice:[ids], chicken:[ids]}: one entry per unit, in
+  // the order they'll be eaten (product lines take turns, so it's a
+  // different kind every day). Eating takes from the front, so upcoming
+  // days never reshuffle. Rebuilt only when stock is added or edited.
+  // state.packAlt counts no-rice days so far (even = 닭 2개, odd = 집밥).
+  function packItems(kind){ return inventory().filter(function(it){ return it.pack === kind; }); }
+  function itemById(id){ return inventory().filter(function(x){ return x.id === id; })[0]; }
+  function rebuildPackSeq(){
+    state.packSeq = state.packSeq || {};
+    ["rice","chicken"].forEach(function(kind){
+      var lines = [], byLine = {};
+      packItems(kind).forEach(function(it){
+        var l = it.line || it.name;
+        if (!byLine[l]){ byLine[l] = []; lines.push(l); }
+        byLine[l].push({id: it.id, n: Math.round(it.qty)});
+      });
+      // inside a line flavours take turns too (떡갈비, 깻잎, 스파이시, 떡갈비…)
+      var lineSeq = {};
+      lines.forEach(function(l){
+        var out = [], left = true;
+        while (left){ left = false; byLine[l].forEach(function(x){ if (x.n > 0){ out.push(x.id); x.n--; left = true; } }); }
+        lineSeq[l] = out;
+      });
+      var seq = [], more = true;
+      while (more){ more = false; lines.forEach(function(l){ if (lineSeq[l].length){ seq.push(lineSeq[l].shift()); more = true; } }); }
+      state.packSeq[kind] = seq;
+    });
+  }
+  // the stored order, trimmed to what's actually in the fridge; rebuilt if
+  // stock was added or edited outside of eating
+  function packSeq(kind){
+    var counts = {}, total = 0;
+    packItems(kind).forEach(function(it){ counts[it.id] = Math.round(it.qty); total += counts[it.id]; });
+    var seq = ((state.packSeq || {})[kind] || []).filter(function(id){
+      if (counts[id] > 0){ counts[id]--; return true; } return false;
+    });
+    if (seq.length !== total){ rebuildPackSeq(); return state.packSeq[kind].slice(); }
+    return seq;
+  }
+  function isPackDay(e){
+    return dietModeOf(state) === "pack" && !!state.packStart && toISO(e) >= state.packStart && !isOffDay(state, e);
+  }
+  // what the next pack day gets, from the front of the queues
+  function nextPackMeal(rice, chicken, alt){
+    if (rice.length && chicken.length) return {type: "meal", ids: [rice[0], chicken[0]], r: 1, c: 1};
+    if (rice.length) return {type: "rice", ids: [rice[0]], r: 1, c: 0};
+    if (!chicken.length) return {type: "none", ids: [], r: 0, c: 0};
+    if (alt % 2 === 1) return {type: "home", ids: [], r: 0, c: 0, alt: true};
+    if (chicken.length >= 2) return {type: "chicken2", ids: [chicken[0], chicken[1]], r: 0, c: 2, alt: true};
+    return {type: "chicken1", ids: [chicken[0]], r: 0, c: 1, alt: true};
+  }
+  function packName(id, log){
+    var it = itemById(id);
+    if (it) return it.name;
+    var l = (log || []).filter(function(x){ return x.id === id; })[0];
+    return l ? l.name : "";
+  }
+  function packText(a, log){
+    var names = a.ids.map(function(id){ return packName(id, log); });
+    if (a.skip) return "건너뜀";
+    if (a.type === "meal") return names.join(" + ");
+    if (a.type === "chicken2") return "닭 2개: " + names.join(" + ") + " (밥 사야 해요)";
+    if (a.type === "chicken1") return "닭 1개: " + names[0];
+    if (a.type === "rice") return names[0] + " (닭가슴살 없음)";
+    if (a.type === "home") return "집밥 (밥 반 공기 + 반찬)";
+    return "다이어트 팩을 다 먹었어요";
+  }
+  // date -> plan for the pack days in [from, to]: past/eaten days from the
+  // log, upcoming ones simulated from the queues
+  function packPlan(from, to){
+    var map = {};
+    if (dietModeOf(state) !== "pack" || !state.packStart) return map;
+    var rice = packSeq("rice"), chicken = packSeq("chicken"), alt = state.packAlt || 0;
+    var cons = state.consumed || {};
+    for (var e = from; e <= to; e++){
+      if (!isPackDay(e)) continue;
+      var iso = toISO(e), log = cons[iso + "|pack"];
+      if (log){
+        map[iso] = {type: log.type || "none", ids: (log.items || []).map(function(x){ return x.id; }), done: !log.skip, skip: !!log.skip, log: log.items};
+        continue;
+      }
+      if (e < currentToday) continue; // not eaten yet but past: autoPack handles it
+      var a = nextPackMeal(rice, chicken, alt);
+      rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++;
+      map[iso] = a;
+    }
+    return map;
+  }
+  function eatPack(iso){
+    var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0);
+    var items = a.ids.map(function(id){
+      var it = itemById(id);
+      return {id: id, name: it.name, line: it.line || "", pack: it.pack};
+    });
+    a.ids.forEach(function(id){ var it = itemById(id); it.qty = Math.round(it.qty) - 1; });
+    state.inventory = inventory().filter(function(it){ return it.qty > 1e-9; });
+    state.packSeq.rice = (state.packSeq.rice || []).slice(a.r);
+    state.packSeq.chicken = (state.packSeq.chicken || []).slice(a.c);
+    if (a.alt) state.packAlt = (state.packAlt || 0) + 1;
+    state.consumed = state.consumed || {};
+    state.consumed[iso + "|pack"] = {type: a.type, items: items, alt: !!a.alt};
+    return a;
+  }
+  // put a day's items back at the front of the queue
+  function uneatPack(iso){
+    var key = iso + "|pack", log = (state.consumed || {})[key];
+    if (!log || log.skip) return;
+    var rice = [], chicken = [];
+    (log.items || []).forEach(function(x){
+      var it = itemById(x.id);
+      if (it) it.qty = Math.round(it.qty) + 1;
+      else inventory().push({id: x.id, name: x.name, qty: 1, unit: "개", exp: "", pack: x.pack, line: x.line});
+      (x.pack === "rice" ? rice : chicken).push(x.id);
+    });
+    state.packSeq.rice = rice.concat(state.packSeq.rice || []);
+    state.packSeq.chicken = chicken.concat(state.packSeq.chicken || []);
+    if (log.alt) state.packAlt = Math.max(0, (state.packAlt || 0) - 1);
+    if (parseISO(iso) < currentToday) state.consumed[key] = {skip: true};
+    else delete state.consumed[key];
+  }
+  function lastEatenPackDay(){
+    var keys = Object.keys(state.consumed || {}).filter(function(k){
+      var v = state.consumed[k]; return /\|pack$/.test(k) && v && !v.skip;
+    }).sort();
+    return keys.length ? keys[keys.length - 1].split("|")[0] : "";
+  }
+  // finished weekday lunches eat their pack items once, in date order
+  function autoPack(today){
+    if (dietModeOf(state) !== "pack" || !state.packStart) return false;
+    var changed = false, cons = state.consumed = state.consumed || {};
+    for (var e = parseISO(state.packStart); e < today; e++){
+      if (!isPackDay(e) || cons[toISO(e) + "|pack"]) continue;
+      eatPack(toISO(e)); changed = true;
+    }
+    return changed;
+  }
+  function packDaysLeft(){
+    var rice = packSeq("rice"), chicken = packSeq("chicken"), alt = state.packAlt || 0, n = 0;
+    for (var i = 0; i < 400; i++){
+      var a = nextPackMeal(rice, chicken, alt);
+      if (a.type === "none") break;
+      if (a.type === "home" && !chicken.length) break;
+      rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++; n++;
+    }
+    return n;
+  }
+  function addPackStock(name, qty, kind, line){
+    var list = inventory();
+    var same = list.filter(function(it){ return it.pack === kind && it.name === name; })[0];
+    if (same) same.qty = Math.round(same.qty) + qty;
+    else list.push({id: "inv" + Date.now() + Math.floor(Math.random()*100000), name: name, qty: qty, unit: "개", exp: "", pack: kind, line: line || name.split(" ")[0]});
+    if (!state.invStart) state.invStart = toISO(currentToday);
+    rebuildPackSeq();
+  }
+
+  function openPackSheet(iso){
+    var e = parseISO(iso), a = (lastPack || {})[iso];
+    if (!a) return;
+    var key = iso + "|pack", isToday = e === currentToday, canUndo = a.done && iso === lastEatenPackDay();
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML = '<div class="sheet"><h3>💪 ' + dispDate(e) + ' 다이어트 점심</h3>' +
+      '<p class="sub">' + esc(packText(a, a.log)) + (a.done ? ' · 먹었어요 ✅' : '') + '</p>' +
+      '<div class="act-grid">' +
+        (isToday && !a.done && !a.skip && a.ids.length ? '<button class="btn primary wide" type="button" id="pkEat">🍳 지금 먹었어요 (냉장고에서 빼기)</button>' : '') +
+        (isToday && !a.done && !a.skip ? '<button class="btn wide" type="button" id="pkSkip">오늘은 건너뛰기 (외식 등)</button>' : '') +
+        (canUndo ? '<button class="btn wide" type="button" id="pkUndo">↩ 먹은 거 되돌리기</button>' : '') +
+        (a.skip && isToday ? '<button class="btn wide" type="button" id="pkUnskip">건너뛰기 취소</button>' : '') +
+      '</div>' +
+      '<p class="hint">평일 점심에 자동으로 정해지고, 하루가 지나면 알아서 냉장고에서 빠져요. 팩 재고는 냉장고 탭에서 볼 수 있어요.</p>' +
+      '<div class="actions"><button class="btn" type="button" id="pkClose">닫기</button></div></div>';
+    host.innerHTML = ""; host.appendChild(overlay);
+    function close(){ host.innerHTML = ""; }
+    function done(msg){ close(); scheduleSave(); renderAll(); showToast(msg); }
+    overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
+    overlay.querySelector("#pkClose").onclick = close;
+    var b;
+    if ((b = overlay.querySelector("#pkEat"))) b.onclick = function(){ eatPack(iso); done("냉장고에서 뺐어요 💪"); };
+    if ((b = overlay.querySelector("#pkSkip"))) b.onclick = function(){ state.consumed = state.consumed || {}; state.consumed[key] = {skip: true}; done("오늘 다이어트 점심은 건너뛰었어요"); };
+    if ((b = overlay.querySelector("#pkUndo"))) b.onclick = function(){ uneatPack(iso); done("냉장고에 다시 넣었어요"); };
+    if ((b = overlay.querySelector("#pkUnskip"))) b.onclick = function(){ delete state.consumed[key]; done("건너뛰기를 취소했어요"); };
+  }
+
   function expiringSoon(){
-    return inventory().filter(function(it){ var d = daysLeft(it); return d !== null && d <= 2; })
+    return inventory().filter(function(it){ if (it.pack) return false; var d = daysLeft(it); return d !== null && d <= 2; })
       .sort(function(a, b){ return daysLeft(a) - daysLeft(b); });
   }
 
@@ -2078,7 +2294,8 @@
       kdateWire("invExp", function(){});
       invExpWired = true;
     }
-    var list = inventory().slice().sort(function(a, b){
+    renderPackBox();
+    var list = inventory().filter(function(it){ return !it.pack; }).sort(function(a, b){
       var da = daysLeft(a), db = daysLeft(b);
       if (da === null && db === null) return a.name < b.name ? -1 : 1;
       if (da === null) return 1; if (db === null) return -1;
@@ -2126,6 +2343,37 @@
     });
   }
 
+  function renderPackBox(){
+    var host = document.getElementById("packBox");
+    var rice = packItems("rice"), chicken = packItems("chicken");
+    if (!rice.length && !chicken.length && dietModeOf(state) !== "pack"){ host.innerHTML = ""; return; }
+    var nr = packSeq("rice").length, nc = packSeq("chicken").length, days = packDaysLeft();
+    function rows(list){
+      return list.map(function(it){
+        return '<div class="inv-row" data-inv="' + esc(it.id) + '"><span class="nm">' + esc(it.name) + '</span><span class="amt">' + Math.round(it.qty) + '개</span></div>';
+      }).join("");
+    }
+    host.innerHTML = '<div class="inv-group' + (nr <= 3 ? " warn" : "") + '"><h2>💪 다이어트 팩 — 밥 ' + nr + ' · 닭 ' + nc + ' (평일 ' + days + '일치)</h2>' +
+      (nr <= 3 ? '<div class="inv-log"><span>🍚 밥(삼김·주먹밥)이 ' + nr + '개 남았어요. 사야 해요! 밥이 없으면 "닭 2개"와 "집밥"이 번갈아 나와요.</span></div>' : '') +
+      (rice.length ? '<div class="shop-cat">🍚 밥</div>' + rows(rice) : '') +
+      (chicken.length ? '<div class="shop-cat">🍗 닭가슴살</div>' + rows(chicken) : '') +
+      '<div class="inv-log" style="flex-wrap:wrap;">' +
+        '<input type="text" id="pkName" placeholder="예: 데리야끼 삼김" style="flex:2;min-width:120px;padding:8px;border-radius:8px;border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);">' +
+        '<input type="number" id="pkQty" placeholder="개수" min="1" style="width:64px;padding:8px;border-radius:8px;border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);">' +
+        '<select id="pkKind" style="padding:8px;border-radius:8px;border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);"><option value="rice">밥</option><option value="chicken">닭</option></select>' +
+        '<button class="btn" type="button" id="pkAdd">추가</button></div></div>';
+    Array.prototype.forEach.call(host.querySelectorAll("[data-inv]"), function(row){
+      row.onclick = function(){ openInvSheet(row.getAttribute("data-inv")); };
+    });
+    host.querySelector("#pkAdd").onclick = function(){
+      var name = host.querySelector("#pkName").value.trim(), q = parseInt(host.querySelector("#pkQty").value, 10);
+      if (!name || !(q > 0)){ showToast("이름과 개수를 적어주세요"); return; }
+      addPackStock(name, q, host.querySelector("#pkKind").value);
+      scheduleSave(); renderAll();
+      showToast('"' + name + '" ' + q + '개 넣었어요 💪');
+    };
+  }
+
   function openInvSheet(id){
     var it = inventory().filter(function(x){ return x.id === id; })[0];
     if (!it) return;
@@ -2157,6 +2405,7 @@
       if (!name || isNaN(a.qty)){ showToast("이름과 양을 확인해주세요"); return; }
       it.name = name; it.qty = a.qty; it.unit = a.unit;
       it.exp = overlay.querySelector("#ivNoExp").checked ? "" : kdateRead("ivExp");
+      if (it.pack) rebuildPackSeq();
       if (!(it.qty > 0)) state.inventory = inventory().filter(function(x){ return x.id !== id; });
       close(); scheduleSave(); renderAll();
       showToast("저장했어요");
@@ -2511,7 +2760,8 @@
     b.onclick = function(){
       state.dietMode = b.getAttribute("data-diet");
       scheduleSave(); renderAll();
-      showToast(state.dietMode === "both" ? "평일 저녁은 다이어트 메뉴로 짤게요 💪" : state.dietMode === "one" ? "평일 저녁에 다이어트 팁을 보여줄게요 💪" : "다이어트 모드를 껐어요");
+      if (state.dietMode === "pack" && !state.packStart) state.packStart = toISO(currentToday);
+      showToast(state.dietMode === "pack" ? "평일 점심은 다이어트 팩으로 보여줄게요 💪" : state.dietMode === "both" ? "평일 저녁은 다이어트 메뉴로 짤게요 💪" : state.dietMode === "one" ? "평일 저녁에 다이어트 팁을 보여줄게요 💪" : "다이어트 모드를 껐어요");
     };
   });
   document.getElementById("inDietName").onchange = function(e){
