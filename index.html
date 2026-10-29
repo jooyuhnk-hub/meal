@@ -402,6 +402,8 @@
   .pk-who{flex:none;min-width:2.4em;font-weight:700;color:var(--accent2);}
   .pk-txt{flex:1;min-width:0;word-break:keep-all;overflow-wrap:break-word;}
   .pk-nut{display:block;font-size:11.5px;color:var(--ink-faint);font-weight:400;}
+  #fridgeSeg button{font-size:12.5px;padding:7px 2px;white-space:nowrap;}
+  #invFormBlock[hidden],#packBox[hidden],#invList[hidden],#invLog[hidden],#fridgeFocus[hidden]{display:none;}
   .co-row .meal-tag{width:auto;white-space:nowrap;color:#4a7fb5;}
   .co-row .meal-dish{font-size:14px;word-break:keep-all;}
   .co-list{margin:0 0 12px;padding:0;list-style:none;}
@@ -462,7 +464,15 @@
   </section>
 
   <section id="tab-fridge" hidden>
-    <div class="settings-block">
+    <div class="view-seg" id="fridgeSeg">
+      <button type="button" data-fv="all">전체</button>
+      <button type="button" data-fv="rice">🍚 밥</button>
+      <button type="button" data-fv="chicken">🍗 닭</button>
+      <button type="button" data-fv="snack">🍪 간식</button>
+      <button type="button" data-fv="ing">🥬 재료</button>
+    </div>
+    <div id="fridgeFocus"></div>
+    <div class="settings-block" id="invFormBlock">
       <h3>🧊 냉장고에 넣기</h3>
       <div class="inv-form">
         <div class="row"><label class="lb" for="inInv">재료</label>
@@ -2402,7 +2412,7 @@
     entries.forEach(function(en){
       if (Array.isArray(en)) en = {name: en[0], qty: en[1], kind: en[2], line: en[3]};
       var name = en.name, qty = Math.round(en.qty), kind = en.kind;
-      if (kind === "snack"){ addSnack(name, qty, en); return; }
+      if (kind === "snack" || /소시지|꼬치/.test(name || "")){ addSnack(name, qty, en); return; }
       if (!name || !(qty > 0) || !fresh[kind]) return;
       var it = inventory().filter(function(x){ return x.pack === kind && x.name === name; })[0];
       if (it) it.qty = Math.round(it.qty) + qty;
@@ -2479,7 +2489,70 @@
   }
 
   var invExpWired = false;
+  // top buttons: show one shelf at a time (remembered per phone)
+  var FRIDGE_KEY = "mealplan_fridgeview", fridgeView = "all";
+  try{ fridgeView = localStorage.getItem(FRIDGE_KEY) || "all"; }catch(e){}
+  if (["all","rice","chicken","snack","ing"].indexOf(fridgeView) === -1) fridgeView = "all";
+  Array.prototype.forEach.call(document.querySelectorAll("#fridgeSeg button"), function(b){
+    b.onclick = function(){
+      fridgeView = b.getAttribute("data-fv");
+      try{ localStorage.setItem(FRIDGE_KEY, fridgeView); }catch(e){}
+      renderFridge(); window.scrollTo(0, 0);
+    };
+  });
+  function renderFridgeFocus(){
+    var host = document.getElementById("fridgeFocus");
+    var kind = fridgeView;
+    var items = kind === "snack" ? inventory().filter(function(it){ return it.snack; }) : packItems(kind);
+    var n = items.reduce(function(a, it){ return a + Math.round(it.qty); }, 0);
+    var title = kind === "rice" ? "🍚 밥" : kind === "chicken" ? "🍗 닭가슴살" : "🍪 간식";
+    var sub = kind === "snack" ? "식단에는 안 나와요. 먹으면 −1을 누르세요." :
+      "평일 저녁 다이어트 팩 · 지금 재고로 평일 " + packDaysLeft() + "일치";
+    var warn = kind === "rice" && n <= 3;
+    host.innerHTML = '<div class="inv-group' + (warn ? " warn" : "") + '"><h2>' + title + ' ' + n + '개</h2>' +
+      '<div class="inv-log"><span>' + esc(sub) + (warn ? '<br>🍚 밥이 ' + n + '개 남았어요. 사야 해요!' : '') + '</span></div>' +
+      (items.length ? items.map(function(it){
+        var nt = nutriTxt({kcal: +it.kcal || 0, protein: +it.protein || 0, est: !!it.est});
+        return '<div class="inv-row" style="cursor:default;"><span class="nm" data-inv="' + esc(it.id) + '" style="cursor:pointer;">' + esc(it.name) +
+            (nt ? '<small class="pk-nut">1개 ' + nt + '</small>' : '') + '</span>' +
+          '<button class="btn" type="button" data-fx-minus="' + esc(it.id) + '" style="padding:4px 11px;">' + (kind === "snack" ? "−1 먹음" : "−") + '</button>' +
+          '<span class="amt" style="min-width:30px;text-align:center;">' + Math.round(it.qty) + '개</span>' +
+          '<button class="btn" type="button" data-fx-plus="' + esc(it.id) + '" style="padding:4px 11px;">+</button></div>';
+      }).join("") : '<div class="inv-log"><span>비어 있어요. "전체"에서 채워넣기 칸으로 넣을 수 있어요.</span></div>') +
+      '</div>';
+    Array.prototype.forEach.call(host.querySelectorAll("[data-inv]"), function(el){
+      el.onclick = function(){ openInvSheet(el.getAttribute("data-inv")); };
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-fx-plus]"), function(b){
+      b.onclick = function(){
+        var it = itemById(b.getAttribute("data-fx-plus"));
+        if (it.snack) addSnack(it.name, 1); else addPackStock(it.name, 1, it.pack, it.line);
+        scheduleSave(); renderAll(); showToast('"' + it.name + '" +1');
+      };
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-fx-minus]"), function(b){
+      b.onclick = function(){
+        var it = itemById(b.getAttribute("data-fx-minus")), name = it.name;
+        if (it.snack){
+          it.qty = Math.round(it.qty) - 1;
+          if (it.qty <= 0) state.inventory = inventory().filter(function(x){ return x !== it; });
+        } else removePackUnit(it.id);
+        scheduleSave(); renderAll(); showToast(it.snack ? '"' + name + '" 하나 먹었어요 🍪' : '"' + name + '" −1');
+      };
+    });
+  }
+
   function renderFridge(){
+    Array.prototype.forEach.call(document.querySelectorAll("#fridgeSeg button"), function(b){
+      b.classList.toggle("on", b.getAttribute("data-fv") === fridgeView);
+    });
+    var focus = fridgeView === "rice" || fridgeView === "chicken" || fridgeView === "snack";
+    document.getElementById("fridgeFocus").hidden = !focus;
+    document.getElementById("invFormBlock").hidden = focus;
+    document.getElementById("packBox").hidden = focus || fridgeView === "ing";
+    document.getElementById("invList").hidden = focus;
+    document.getElementById("invLog").hidden = focus;
+    if (focus){ renderFridgeFocus(); return; }
     setupInvForm();
     document.getElementById("invNameList").innerHTML = recipeIngredientNames().map(function(n){ return '<option value="' + esc(n) + '">'; }).join("");
     if (!invExpWired){
@@ -2488,7 +2561,7 @@
       invExpWired = true;
     }
     renderPackBox();
-    var snacks = inventory().filter(function(it){ return it.snack; });
+    var snacks = fridgeView === "ing" ? [] : inventory().filter(function(it){ return it.snack; });
     var list = inventory().filter(function(it){ return !it.pack && !it.snack; }).sort(function(a, b){
       var da = daysLeft(a), db = daysLeft(b);
       if (da === null && db === null) return a.name < b.name ? -1 : 1;
@@ -2623,7 +2696,7 @@
       var it = known.filter(function(x){ return x.name === nameIn.value.trim(); })[0];
       if (it) host.querySelector("#pkKind").value = it.pack;
       else if (/삼김|삼각|김밥|주먹밥|밥|볶음밥/.test(nameIn.value)) host.querySelector("#pkKind").value = "rice";
-      else if (/소시지/.test(nameIn.value)) host.querySelector("#pkKind").value = "snack";
+      else if (/소시지|꼬치/.test(nameIn.value)) host.querySelector("#pkKind").value = "snack";
       else if (/닭|치킨|스테이크|큐브|크리스피|슬라이스|통살|볼/.test(nameIn.value)) host.querySelector("#pkKind").value = "chicken";
     };
     host.querySelector("#pkAdd").onclick = function(){
