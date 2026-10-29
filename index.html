@@ -2125,7 +2125,7 @@
       var p = parseIng(raw);
       if (p.qty === null || !p.qty) return;
       var need = p.qty;
-      inventory().filter(function(it){ return !it.pack && invMatches(it.name, p.name) && unitsMatch(it.unit, p.unit); })
+      inventory().filter(function(it){ return !it.pack && !it.snack && invMatches(it.name, p.name) && unitsMatch(it.unit, p.unit); })
         .sort(function(a, b){ return (a.exp || "9999") < (b.exp || "9999") ? -1 : 1; })
         .forEach(function(it){
           if (need <= 1e-9) return;
@@ -2402,6 +2402,7 @@
     entries.forEach(function(en){
       if (Array.isArray(en)) en = {name: en[0], qty: en[1], kind: en[2], line: en[3]};
       var name = en.name, qty = Math.round(en.qty), kind = en.kind;
+      if (kind === "snack"){ addSnack(name, qty, en); return; }
       if (!name || !(qty > 0) || !fresh[kind]) return;
       var it = inventory().filter(function(x){ return x.pack === kind && x.name === name; })[0];
       if (it) it.qty = Math.round(it.qty) + qty;
@@ -2416,6 +2417,17 @@
     });
     state.packSeq = {rice: seqs.rice.concat(orderUnits(fresh.rice)), chicken: seqs.chicken.concat(orderUnits(fresh.chicken))};
     if (!state.invStart) state.invStart = toISO(currentToday);
+  }
+  // snacks (소시지꼬치 등): kept in the fridge with nutrition, never planned
+  function addSnack(name, qty, en){
+    if (!name || !(qty > 0)) return;
+    var it = inventory().filter(function(x){ return x.snack && x.name === name; })[0];
+    if (it){ it.qty = Math.round(it.qty) + qty; return; }
+    it = {id: "inv" + Date.now() + Math.floor(Math.random()*100000), name: name, qty: qty, unit: "개", exp: "", snack: true};
+    if (en && en.kcal) it.kcal = en.kcal;
+    if (en && en.protein) it.protein = en.protein;
+    if (en && en.est) it.est = true;
+    inventory().push(it);
   }
   function addPackStock(name, qty, kind, line){ addPackStockMany([{name: name, qty: qty, kind: kind, line: line}]); }
   // one less: take the last planned unit of that item off the end
@@ -2476,7 +2488,8 @@
       invExpWired = true;
     }
     renderPackBox();
-    var list = inventory().filter(function(it){ return !it.pack; }).sort(function(a, b){
+    var snacks = inventory().filter(function(it){ return it.snack; });
+    var list = inventory().filter(function(it){ return !it.pack && !it.snack; }).sort(function(a, b){
       var da = daysLeft(a), db = daysLeft(b);
       if (da === null && db === null) return a.name < b.name ? -1 : 1;
       if (da === null) return 1; if (db === null) return -1;
@@ -2498,9 +2511,31 @@
             '<span class="amt">' + esc(amountText(it)) + '</span>' + expBadge(it) + '</div>';
         }).join("") + '</div>';
     });
+    if (snacks.length){
+      html = '<div class="inv-group"><h2>🍪 간식 (' + snacks.reduce(function(a, it){ return a + Math.round(it.qty); }, 0) + '개)</h2>' +
+        snacks.map(function(it){
+          var nt = nutriTxt({kcal: +it.kcal || 0, protein: +it.protein || 0, est: !!it.est});
+          return '<div class="inv-row" style="cursor:default;"><span class="nm" data-inv="' + esc(it.id) + '" style="cursor:pointer;">' + esc(it.name) +
+              (nt ? '<small class="pk-nut">1개 ' + nt + '</small>' : '') + '</span>' +
+            '<span class="amt">' + Math.round(it.qty) + '개</span>' +
+            '<button class="btn" type="button" data-snack-eat="' + esc(it.id) + '" style="padding:4px 10px;">−1 먹음</button></div>';
+        }).join("") + '</div>' + html;
+    }
     document.getElementById("invList").innerHTML = html;
     Array.prototype.forEach.call(document.querySelectorAll("#invList [data-inv]"), function(row){
       row.onclick = function(){ openInvSheet(row.getAttribute("data-inv")); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#invList [data-snack-eat]"), function(b){
+      b.onclick = function(ev){
+        ev.stopPropagation();
+        var it = itemById(b.getAttribute("data-snack-eat"));
+        if (!it) return;
+        var name = it.name;
+        it.qty = Math.round(it.qty) - 1;
+        if (it.qty <= 0) state.inventory = inventory().filter(function(x){ return x !== it; });
+        scheduleSave(); renderAll();
+        showToast('"' + name + '" 하나 먹었어요 🍪');
+      };
     });
 
     // recent deductions, newest first, each one undoable
@@ -2556,7 +2591,7 @@
           '<input type="number" id="pkQty" placeholder="개수" min="1" inputmode="numeric" style="width:64px;' + PACK_INPUT + '">' +
         '</div>' +
         '<div style="display:flex;gap:6px;">' +
-          '<select id="pkKind" style="flex:1;' + PACK_INPUT + '"><option value="rice">🍚 밥 (주먹밥 등)</option><option value="chicken">🍗 닭가슴살</option></select>' +
+          '<select id="pkKind" style="flex:1;' + PACK_INPUT + '"><option value="rice">🍚 밥 (주먹밥 등)</option><option value="chicken">🍗 닭가슴살</option><option value="snack">🍪 간식 (식단엔 안 나옴)</option></select>' +
           '<button class="btn primary" type="button" id="pkAdd">넣기</button>' +
         '</div>' +
         '<span class="hint">있는 품목은 개수만 늘어나요. 새로 넣은 건 이미 정해진 날들 뒤에 붙어서, 내일 메뉴는 그대로예요.</span>' +
@@ -2588,7 +2623,8 @@
       var it = known.filter(function(x){ return x.name === nameIn.value.trim(); })[0];
       if (it) host.querySelector("#pkKind").value = it.pack;
       else if (/삼김|삼각|김밥|주먹밥|밥|볶음밥/.test(nameIn.value)) host.querySelector("#pkKind").value = "rice";
-      else if (/닭|치킨|스테이크|큐브|소시지|크리스피|슬라이스|통살|볼/.test(nameIn.value)) host.querySelector("#pkKind").value = "chicken";
+      else if (/소시지/.test(nameIn.value)) host.querySelector("#pkKind").value = "snack";
+      else if (/닭|치킨|스테이크|큐브|크리스피|슬라이스|통살|볼/.test(nameIn.value)) host.querySelector("#pkKind").value = "chicken";
     };
     host.querySelector("#pkAdd").onclick = function(){
       var name = nameIn.value.trim(), q = parseInt(host.querySelector("#pkQty").value, 10);
