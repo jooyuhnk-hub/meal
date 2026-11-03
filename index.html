@@ -32,6 +32,7 @@
     --weekend:#fbeee6;
     --warn-bg:#fdf1dc;
     --warn-ink:#8a5a00;
+    --ok-bg:#e3f3e6;--ok-ink:#1f6b34;--bad-bg:#fde4e1;--bad-ink:#a3271b;
     --shadow:0 3px 14px rgba(35,45,25,.09);
     --radius:16px;
     --radius-sm:10px;
@@ -54,6 +55,7 @@
       --weekend:#2c211a;
       --warn-bg:#332609;
       --warn-ink:#f0c375;
+      --ok-bg:#163321;--ok-ink:#8fd9a5;--bad-bg:#3a1714;--bad-ink:#f3a097;
       --shadow:0 3px 14px rgba(0,0,0,.35);
     }
   }
@@ -74,6 +76,7 @@
     --weekend:#2c211a;
     --warn-bg:#332609;
     --warn-ink:#f0c375;
+      --ok-bg:#163321;--ok-ink:#8fd9a5;--bad-bg:#3a1714;--bad-ink:#f3a097;
     --shadow:0 3px 14px rgba(0,0,0,.35);
   }
 
@@ -198,6 +201,19 @@
     border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);font-size:13.5px;
   }
   .hint{font-size:12px;color:var(--ink-faint);margin-top:2px;}
+  .nutri-entry{padding:10px;}
+  .nutri-recent{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .nutri-recent button{font-size:12.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);}
+  .nutri-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  .nutri-grid label{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:3px;font-weight:600;}
+  .nutri-grid input{width:100%;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);font-size:14px;}
+  .nutri-out{border-radius:var(--radius-sm);padding:12px;margin-top:6px;font-size:13.5px;line-height:1.6;background:var(--bg);border:1px solid var(--surface-border);}
+  .nutri-out .nv{font-weight:700;font-size:15px;padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:8px;}
+  .nv.ok{background:var(--ok-bg);color:var(--ok-ink);}
+  .nv.mid{background:var(--warn-bg);color:var(--warn-ink);}
+  .nv.bad{background:var(--bad-bg);color:var(--bad-ink);}
+  .nutri-out ul{padding-left:18px;margin:4px 0;}
+  .nutri-out h4{font-size:13px;margin:8px 0 2px;color:var(--ink);}
 
   .dish-list{display:flex;flex-direction:column;gap:8px;}
   .dish-card{
@@ -495,6 +511,10 @@
       <button type="button" data-fv="chicken">🍗 닭</button>
       <button type="button" data-fv="snack">🍪 간식</button>
       <button type="button" data-fv="ing">🥬 재료</button>
+    </div>
+    <div class="settings-block nutri-entry">
+      <button class="btn block" type="button" id="btnNutri">🔍 이거 먹어도 돼? 영양성분 체크</button>
+      <div class="nutri-recent" id="nutriRecent"></div>
     </div>
     <div id="fridgeFocus"></div>
     <div class="settings-block" id="invFormBlock">
@@ -2855,6 +2875,7 @@
     document.getElementById("packBox").hidden = focus || fridgeView === "ing";
     document.getElementById("invList").hidden = focus;
     document.getElementById("invLog").hidden = focus;
+    renderNutriRecent();
     if (focus){ renderFridgeFocus(); return; }
     setupInvForm();
     document.getElementById("invNameList").innerHTML = recipeIngredientNames().map(function(n){ return '<option value="' + esc(n) + '">'; }).join("");
@@ -3011,6 +3032,130 @@
       changed('"' + name + '" ' + q + '개 넣었어요 💪');
     };
   }
+
+  // ---- nutrition label checker (rule-based, no AI call) ----
+  function packBudget(){
+    var r = [], c = [];
+    inventory().forEach(function(it){ if (it.pack && +it.kcal > 0) (it.pack === "rice" ? r : c).push(+it.kcal); });
+    var avg = function(a, d){ return a.length ? a.reduce(function(x, y){ return x + y; }, 0) / a.length : d; };
+    var ch = avg(c, 130);
+    return {me: Math.round(avg(r, 220) + ch), you: Math.round(ch)};
+  }
+  function nutriAnalyze(v){
+    var basis = v.basis > 0 ? v.basis : 100, f = 100 / basis;
+    var k100 = v.kcal * f;
+    if (!(k100 > 0)) return null;
+    var p100 = (v.protein || 0) * f, su100 = v.sugar >= 0 ? v.sugar * f : null,
+        na100 = v.sodium >= 0 ? v.sodium * f : null, sf100 = v.satfat >= 0 ? v.satfat * f : null;
+    var serv = v.serving > 0 ? v.serving : basis, pieces = v.pieces > 0 ? v.pieces : 1, pieceG = serv / pieces;
+    var sk = k100 * serv / 100, sp = p100 * serv / 100;
+    var sna = na100 === null ? null : na100 * serv / 100, ssf = sf100 === null ? null : sf100 * serv / 100, ssu = su100 === null ? null : su100 * serv / 100;
+    var pd = p100 / k100 * 100; // protein g per 100kcal
+    var bad = [], good = [], tips = [];
+    if (pd >= 10) good.push("단백질이 아주 많아요 (100kcal당 " + pd.toFixed(1) + "g, 닭가슴살급)");
+    else if (pd >= 6) good.push("단백질이 꽤 많은 편이에요 (100kcal당 " + pd.toFixed(1) + "g)");
+    else if (pd < 3) bad.push("칼로리에 비해 단백질이 적어요 (100kcal당 " + pd.toFixed(1) + "g)");
+    if (k100 > 300) bad.push("칼로리가 높아요 (100g에 " + Math.round(k100) + "kcal, 과자·튀김 수준)");
+    else if (k100 > 220) bad.push("칼로리가 일반 피자·빵 정도예요 (100g에 " + Math.round(k100) + "kcal)");
+    else if (k100 <= 150) good.push("칼로리가 낮은 편이에요 (100g에 " + Math.round(k100) + "kcal)");
+    if (ssf !== null){
+      var sfp = Math.round(ssf / 15 * 100);
+      if (sfp >= 50) bad.push("포화지방이 1회분에 " + ssf.toFixed(1) + "g, 하루 권장량의 " + sfp + "%예요");
+    }
+    if (sna !== null){
+      if (sna >= 800) { bad.push("짜요: 1회분 나트륨 " + Math.round(sna) + "mg (하루 권장 2,000mg의 " + Math.round(sna / 20) + "%)"); tips.push("그날은 물을 많이 마시고, 다음 날 아침 체중이 조금 올라도 붓기예요"); }
+    }
+    if (ssu !== null){
+      if (ssu >= 15) bad.push("당류가 1회분에 " + ssu.toFixed(1) + "g으로 많아요");
+      else if (ssu <= 3) good.push("당류가 거의 없어요");
+    }
+    var score = 0;
+    if (pd >= 8) score += 2; else if (pd >= 5) score += 1; else if (pd < 3) score -= 2;
+    if (k100 > 300) score -= 2; else if (k100 > 220) score -= 1; else if (k100 <= 150) score += 1;
+    if (ssf !== null && ssf >= 10) score -= 2; else if (ssf !== null && ssf >= 7.5) score -= 1;
+    if (sna !== null && sna >= 1200) score -= 1;
+    if (ssu !== null && ssu >= 15) score -= 1;
+    var verdict = score >= 2 ? "ok" : score >= 0 ? "mid" : "bad";
+    var b = packBudget(), nm = packNames();
+    var portion = function(budget){
+      var g = budget / k100 * 100, pc = Math.max(0.5, Math.round(g / pieceG * 2) / 2);
+      return {g: Math.round(g), pc: pc};
+    };
+    return {k100: k100, p100: p100, pd: pd, serv: serv, pieces: pieces, pieceG: pieceG, sk: sk, sp: sp,
+      verdict: verdict, bad: bad, good: good, tips: tips, budget: b, nm: nm, me: portion(b.me), you: portion(b.you)};
+  }
+  function nutriHTML(v, a){
+    if (!a) return '<p class="hint">칼로리를 적으면 바로 알려줘요.</p>';
+    var title = {ok: "✅ 다이어트식으로 OK", mid: "🟡 가끔 한 끼 대신이면 괜찮아요", bad: "🔴 살 안 찌는 음식은 아니에요 · 치팅용"}[a.verdict];
+    var unit = a.pieces > 1 ? "조각" : "개";
+    var one = a.pieces > 1 || v.serving > 0;
+    var cmp = Math.round(a.sk) > a.budget.me ? "광훈 다이어트 저녁(≈" + a.budget.me + "kcal)보다 많아요" : "광훈 다이어트 저녁(≈" + a.budget.me + "kcal) 이하예요";
+    var h = '<div class="nv ' + a.verdict + '">' + title + '</div>';
+    h += '<div>' + (one ? '1회 제공량(' + Math.round(a.serv) + 'g)' : Math.round(a.serv) + 'g') + ' = <b>' + Math.round(a.sk) + 'kcal</b> · 단백질 ' + a.sp.toFixed(1) + 'g<br><span class="hint">' + cmp + '</span></div>';
+    if (a.good.length) h += '<h4>👍 좋은 점</h4><ul>' + a.good.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join("") + '</ul>';
+    if (a.bad.length) h += '<h4>⚠️ 아쉬운 점</h4><ul>' + a.bad.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join("") + '</ul>';
+    var how = a.verdict === "bad" ? "먹는다면 간식 말고 저녁 한 끼 대신, 주 1회 정도" : a.verdict === "mid" ? "다이어트 팩 대신 저녁 한 끼로" : "다이어트 저녁이나 간식으로 자유롭게";
+    var pcTxt = function(p){ return a.pieces > 1 || a.pieceG !== a.serv ? p.pc + unit + ' (≈' + p.g + 'g)' : '≈' + p.g + 'g'; };
+    h += '<h4>🍽 얼마나 먹을까</h4><ul><li>' + how + '</li><li>' + esc(a.nm.me) + ': ' + pcTxt(a.me) + ' · ' + esc(a.nm.you) + ': ' + pcTxt(a.you) + '</li>' +
+      '<li class="hint" style="list-style:none;margin-left:-18px;">다이어트 팩 한 끼 칼로리(' + esc(a.nm.me) + ' ≈' + a.budget.me + ', ' + esc(a.nm.you) + ' ≈' + a.budget.you + 'kcal)에 맞춘 양이에요.</li>';
+    if (a.verdict !== "ok") h += '<li>팩 대신 먹는 날엔 식단표 💪저녁을 눌러 "안 먹음"을 체크하세요</li>';
+    h += a.tips.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join("") + '</ul>';
+    return h;
+  }
+  function renderNutriRecent(){
+    var host = document.getElementById("nutriRecent"); if (!host) return;
+    var list = state.nutriChecks || [];
+    host.innerHTML = list.slice(0, 8).map(function(c, i){
+      var a = nutriAnalyze(c), ic = a ? {ok: "✅", mid: "🟡", bad: "🔴"}[a.verdict] : "";
+      return '<button type="button" data-nc="' + i + '">' + ic + ' ' + esc(c.name || "이름 없음") + '</button>';
+    }).join("");
+    Array.prototype.forEach.call(host.querySelectorAll("[data-nc]"), function(b){
+      b.onclick = function(){ openNutriSheet(+b.getAttribute("data-nc")); };
+    });
+  }
+  function openNutriSheet(idx){
+    var c = idx >= 0 ? (state.nutriChecks || [])[idx] : null;
+    var F = [["name","이름","text","예: 단백질 피자"],["basis","기준 (g)","number","100"],["kcal","칼로리 (kcal)","number",""],["protein","단백질 (g)","number",""],
+      ["sugar","당류 (g)","number","없으면 비워두기"],["sodium","나트륨 (mg)","number",""],["satfat","포화지방 (g)","number",""],["serving","1회 제공량 (g)","number","예: 195"],["pieces","1회 제공량 = 몇 개/조각","number","예: 2"]];
+    var host = document.getElementById("sheetHost");
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    overlay.innerHTML = '<div class="sheet"><h3>🔍 이거 먹어도 돼?</h3><p class="sub">포장지 영양성분표의 숫자를 그대로 적어요. 칼로리만 적어도 돼요.</p>' +
+      '<div class="nutri-grid">' + F.map(function(f){
+        var val = c ? (c[f[0]] === undefined || c[f[0]] === null ? "" : c[f[0]]) : (f[0] === "basis" ? 100 : "");
+        return '<div' + (f[0] === "name" ? ' style="grid-column:1/-1"' : '') + '><label for="nt_' + f[0] + '">' + f[1] + '</label><input id="nt_' + f[0] + '" type="' + f[2] + '"' +
+          (f[2] === "number" ? ' inputmode="decimal"' : '') + ' placeholder="' + f[3] + '" value="' + esc(String(val)) + '"></div>';
+      }).join("") + '</div><div class="nutri-out" id="ntOut"></div>' +
+      '<div class="actions">' + (c ? '<button class="btn danger" type="button" id="ntDel">지우기</button>' : '') +
+      '<button class="btn" type="button" id="ntClose">닫기</button><button class="btn primary" type="button" id="ntSave">기록 남기기</button></div></div>';
+    host.innerHTML = ""; host.appendChild(overlay);
+    function read(){
+      var v = {name: overlay.querySelector("#nt_name").value.trim()};
+      F.slice(1).forEach(function(f){ var x = parseFloat(overlay.querySelector("#nt_" + f[0]).value); v[f[0]] = isNaN(x) ? null : x; });
+      return v;
+    }
+    function update(){ var v = read(); overlay.querySelector("#ntOut").innerHTML = nutriHTML(v, nutriAnalyze(v)); }
+    Array.prototype.forEach.call(overlay.querySelectorAll("input"), function(i){ i.oninput = update; });
+    update();
+    function close(){ host.innerHTML = ""; }
+    overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
+    overlay.querySelector("#ntClose").onclick = close;
+    if (c) overlay.querySelector("#ntDel").onclick = function(){
+      state.nutriChecks.splice(idx, 1); close(); scheduleSave(); renderNutriRecent(); showToast("지웠어요");
+    };
+    overlay.querySelector("#ntSave").onclick = function(){
+      var v = read();
+      if (!nutriAnalyze(v)){ showToast("칼로리를 적어주세요"); return; }
+      if (!v.name) v.name = "이름 없음";
+      var list = (state.nutriChecks || []).slice();
+      if (c) list.splice(idx, 1);
+      list = list.filter(function(x){ return x.name !== v.name; });
+      list.unshift(v);
+      state.nutriChecks = list.slice(0, 30);
+      close(); scheduleSave(); renderNutriRecent(); showToast('"' + v.name + '" 기록했어요');
+    };
+  }
+  document.getElementById("btnNutri").onclick = function(){ openNutriSheet(-1); };
 
   function openInvSheet(id){
     var it = inventory().filter(function(x){ return x.id === id; })[0];
