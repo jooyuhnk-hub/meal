@@ -3077,12 +3077,16 @@
     if (ssu !== null && ssu >= 15) score -= 1;
     var verdict = score >= 2 ? "ok" : score >= 0 ? "mid" : "bad";
     var b = packBudget(), nm = packNames();
+    // cheat/one-off meals get a real meal's worth, not a diet-pack dinner
+    var mb = verdict === "bad" ? {me: 600, you: 300, t: "치팅 한 끼"} :
+             verdict === "mid" ? {me: Math.max(b.me, 450), you: Math.max(b.you, 250), t: "가벼운 한 끼"} :
+             {me: b.me, you: b.you, t: "다이어트 팩 한 끼"};
     var portion = function(budget){
       var g = budget / k100 * 100, pc = Math.max(0.5, Math.round(g / pieceG * 2) / 2);
       return {g: Math.round(g), pc: pc};
     };
     return {k100: k100, p100: p100, pd: pd, serv: serv, pieces: pieces, pieceG: pieceG, sk: sk, sp: sp,
-      verdict: verdict, bad: bad, good: good, tips: tips, budget: b, nm: nm, me: portion(b.me), you: portion(b.you)};
+      verdict: verdict, bad: bad, good: good, tips: tips, budget: b, mb: mb, nm: nm, me: portion(mb.me), you: portion(mb.you)};
   }
   function nutriHTML(v, a){
     if (!a) return '<p class="hint">칼로리를 적으면 바로 알려줘요.</p>';
@@ -3097,7 +3101,7 @@
     var how = a.verdict === "bad" ? "먹는다면 간식 말고 저녁 한 끼 대신, 주 1회 정도" : a.verdict === "mid" ? "다이어트 팩 대신 저녁 한 끼로" : "다이어트 저녁이나 간식으로 자유롭게";
     var pcTxt = function(p){ return a.pieces > 1 || a.pieceG !== a.serv ? p.pc + unit + ' (≈' + p.g + 'g)' : '≈' + p.g + 'g'; };
     h += '<h4>🍽 얼마나 먹을까</h4><ul><li>' + how + '</li><li>' + esc(a.nm.me) + ': ' + pcTxt(a.me) + ' · ' + esc(a.nm.you) + ': ' + pcTxt(a.you) + '</li>' +
-      '<li class="hint" style="list-style:none;margin-left:-18px;">다이어트 팩 한 끼 칼로리(' + esc(a.nm.me) + ' ≈' + a.budget.me + ', ' + esc(a.nm.you) + ' ≈' + a.budget.you + 'kcal)에 맞춘 양이에요.</li>';
+      '<li class="hint" style="list-style:none;margin-left:-18px;">' + a.mb.t + ' 기준(' + esc(a.nm.me) + ' ≈' + a.mb.me + ', ' + esc(a.nm.you) + ' ≈' + a.mb.you + 'kcal)에 맞춘 양이에요.' + (a.verdict === "bad" ? ' 치팅이니까 맛있게 먹고, 다음 날은 다시 팩으로!' : '') + '</li>';
     if (a.verdict !== "ok") h += '<li>팩 대신 먹는 날엔 식단표 💪저녁을 눌러 "안 먹음"을 체크하세요</li>';
     h += a.tips.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join("") + '</ul>';
     return h;
