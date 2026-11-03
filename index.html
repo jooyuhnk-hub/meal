@@ -103,10 +103,10 @@
   .brand{display:flex;align-items:baseline;gap:8px;}
   .brand h1{font-size:22px;color:var(--ink);}
   .brand span{font-size:12px;color:var(--ink-faint);}
-  nav.tabs{display:flex;gap:6px;}
+  nav.tabs{display:flex;gap:4px;}
   nav.tabs button{
-    flex:1;padding:9px 4px;border:none;border-radius:999px;
-    background:transparent;color:var(--ink-dim);font-size:14px;font-weight:600;
+    flex:1;padding:9px 2px;border:none;border-radius:999px;white-space:nowrap;
+    background:transparent;color:var(--ink-dim);font-size:13.5px;font-weight:600;
     cursor:pointer;transition:background .15s,color .15s;
   }
   nav.tabs button.active{background:var(--accent);color:var(--accent-ink);}
@@ -404,6 +404,30 @@
   .pk-nut{display:block;font-size:11.5px;color:var(--ink-faint);font-weight:400;}
   #fridgeSeg button{font-size:12.5px;padding:7px 2px;white-space:nowrap;}
   #invFormBlock[hidden],#packBox[hidden],#invList[hidden],#invLog[hidden],#fridgeFocus[hidden]{display:none;}
+  :root{ --w-am:#2a78d6; --w-pm:#eb6834; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --w-am:#3987e5; --w-pm:#d95926; } }
+  :root[data-theme="dark"]{ --w-am:#3987e5; --w-pm:#d95926; }
+  .w-nav{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .w-nav .title{flex:1;text-align:center;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:19px;}
+  .w-grid{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px 10px;align-items:center;}
+  .w-grid .h{font-size:12px;color:var(--ink-dim);font-weight:700;text-align:center;}
+  .w-grid .who{font-weight:700;color:var(--accent2);}
+  .w-grid input{width:100%;min-width:0;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--surface-border);
+    background:var(--bg);color:var(--ink);font-size:17px;text-align:center;}
+  .w-sum{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+  .w-tile{border:1px solid var(--surface-border);border-radius:var(--radius-sm);padding:10px 12px;background:var(--bg);}
+  .w-tile .nm{font-size:12.5px;color:var(--ink-dim);font-weight:700;}
+  .w-tile .big{font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:28px;line-height:1.1;margin:2px 0;}
+  .w-tile .d{font-size:12px;color:var(--ink-dim);line-height:1.5;}
+  .w-chart{position:relative;}
+  .w-chart svg{display:block;width:100%;height:auto;overflow:visible;}
+  .w-legend{display:flex;gap:14px;font-size:12px;color:var(--ink-dim);margin:2px 0 6px;}
+  .w-legend i{display:inline-block;width:16px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px;}
+  .w-tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;padding:6px 9px;border-radius:8px;
+    white-space:nowrap;transform:translate(-50%,-100%);display:none;line-height:1.45;}
+  .w-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .w-table th,.w-table td{padding:6px 4px;border-top:1px solid var(--surface-border);text-align:center;}
+  .w-table th{color:var(--ink-dim);font-weight:600;font-size:12px;}
   .co-row .meal-tag{width:auto;white-space:nowrap;color:#4a7fb5;}
   .co-row .meal-dish{font-size:14px;word-break:keep-all;}
   .co-list{margin:0 0 12px;padding:0;list-style:none;}
@@ -436,6 +460,7 @@
     <button data-tab="plan" class="active">이번 식단</button>
     <button data-tab="shop">장보기</button>
     <button data-tab="fridge" id="tabFridge">냉장고</button>
+    <button data-tab="weight">체중</button>
     <button data-tab="settings">설정</button>
   </nav>
 </header>
@@ -488,6 +513,21 @@
     <div id="packBox"></div>
     <div id="invList"></div>
     <div id="invLog"></div>
+  </section>
+
+  <section id="tab-weight" hidden>
+    <div class="settings-block">
+      <div class="w-nav">
+        <button class="nav-btn" type="button" id="wPrev" style="border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);border-radius:999px;width:36px;height:36px;">◀</button>
+        <span class="title" id="wDate"></span>
+        <button class="nav-btn" type="button" id="wNext" style="border:1px solid var(--surface-border);background:var(--bg);color:var(--ink);border-radius:999px;width:36px;height:36px;">▶</button>
+      </div>
+      <div class="w-grid" id="wGrid"></div>
+      <p class="hint" style="margin-top:8px;">kg로 적으면 바로 저장돼요. 아침은 일어나서 화장실 다녀온 뒤, 저녁은 자기 전에 재면 비교하기 좋아요.</p>
+    </div>
+    <div id="wSummary"></div>
+    <div id="wCharts"></div>
+    <div id="wHistory"></div>
   </section>
 
   <section id="tab-settings" hidden>
@@ -1274,7 +1314,7 @@
   // per tap, most of them for tabs no one was looking at).
   var lastSlots = null;
   var lastPack = {};
-  var tabDirty = {plan:true, shop:true, settings:true, fridge:true};
+  var tabDirty = {plan:true, shop:true, settings:true, fridge:true, weight:true};
   var currentToday = todayEpochLocal();
 
   function renderAll(){
@@ -1288,7 +1328,7 @@
     if (autoPack(currentToday)){ if (fsDoc) scheduleSave(); else saveLocal(); }
     lastPack = packPlan(currentToday - 60, currentToday + 7*13);
     lastSlots = generatePlan(state, currentToday);
-    tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true; tabDirty.fridge = true;
+    tabDirty.plan = true; tabDirty.shop = true; tabDirty.settings = true; tabDirty.fridge = true; tabDirty.weight = true;
     var warnN = expiringSoon().length;
     document.getElementById("tabFridge").textContent = "냉장고" + (warnN ? " ⚠" + warnN : "");
     renderStatusBar();
@@ -1319,6 +1359,7 @@
     else if (activeTab==="shop" && tabDirty.shop){ renderShop(lastSlots); tabDirty.shop=false; }
     else if (activeTab==="settings" && tabDirty.settings){ renderSettings(); tabDirty.settings=false; }
     else if (activeTab==="fridge" && tabDirty.fridge){ renderFridge(); tabDirty.fridge=false; }
+    else if (activeTab==="weight" && tabDirty.weight){ renderWeight(); tabDirty.weight=false; }
   }
 
   function renderStatusBar(){
@@ -1454,8 +1495,11 @@
     var todays = slots.filter(function(s){ return s.epoch === currentToday; });
     var tomorrow = slots.filter(function(s){ return s.epoch === currentToday + 1; });
     if (!todays.length){ host.innerHTML = ""; return; }
+    var tIso = toISO(currentToday);
+    var needW = !weightOf(tIso, "me", "am") || !weightOf(tIso, "you", "am");
     host.innerHTML = '<div class="today-card">' +
       '<div class="tc-date">오늘 · ' + dispDate(currentToday) + '</div>' +
+      (needW ? '<div class="tc-warn" id="tcWeight" style="cursor:pointer;margin:0 0 6px;color:var(--ink-dim);">⚖️ 오늘 아침 체중 기록하기 ›</div>' : '') +
       companyRowHTML(toISO(currentToday), "today") +
       todays.map(function(s){
         if (s.isPack){
@@ -1481,6 +1525,8 @@
         var d = daysLeft(it); return esc(it.name) + '(' + (d < 0 ? "지남" : d === 0 ? "오늘" : "D-" + d) + ')';
       }).join(", ") + '</div>' : '') +
       '</div>';
+    var tw = host.querySelector("#tcWeight");
+    if (tw) tw.onclick = function(){ wDay = currentToday; document.querySelector('nav.tabs button[data-tab="weight"]').click(); };
     Array.prototype.forEach.call(host.querySelectorAll(".tc-meal"), function(row){
       row.onclick = function(){
         if (row.hasAttribute("data-co")) openCompanySheet(row.getAttribute("data-co"));
@@ -2243,7 +2289,40 @@
   // you: 닭 1 (on 집밥 days both eat 집밥)
   // skip: "" | "me" | "you" | "all" — who didn't eat that day (state.packSkip);
   // their share stays in the fridge and goes to the next day
-  function nextPackMeal(rice, chicken, alt, skip){
+  // take these ids out of the queues (wherever they are); ids that aren't
+  // left (eaten on an earlier day) are dropped
+  function takeIds(ids, rice, chicken){
+    rice = rice.slice(); chicken = chicken.slice();
+    var ok = [];
+    (ids || []).forEach(function(id){
+      var i = rice.indexOf(id);
+      if (i !== -1){ rice.splice(i, 1); ok.push(id); return; }
+      i = chicken.indexOf(id);
+      if (i !== -1){ chicken.splice(i, 1); ok.push(id); }
+    });
+    return {ok: ok, rice: rice, chicken: chicken};
+  }
+  // pick (state.packPick[iso]) = {me: [ids], you: [ids]} chosen by hand for a day
+  function nextPackMeal(rice, chicken, alt, skip, pick){
+    var a = nextPackMealAuto(rice, chicken, alt, skip);
+    if (!pick || (!pick.me && !pick.you) || a.type === "skipped") {
+      a.restRice = rice.slice(a.r); a.restChicken = chicken.slice(a.c);
+      return a;
+    }
+    var r = rice, c = chicken, me = [], you = [];
+    if (skip !== "me"){
+      if (pick.me){ var t = takeIds(pick.me, r, c); me = t.ok; r = t.rice; c = t.chicken; }
+      else { me = a.me.slice(); var t0 = takeIds(me, r, c); r = t0.rice; c = t0.chicken; }
+    }
+    if (skip !== "you"){
+      if (pick.you){ var t2 = takeIds(pick.you, r, c); you = t2.ok; r = t2.rice; c = t2.chicken; }
+      else if (c.length){ you = [c[0]]; c = c.slice(1); }
+    }
+    return {type: "custom", me: me, you: you, ids: me.concat(you), restRice: r, restChicken: c,
+      alt: false, skipWho: skip || "", picked: true};
+  }
+  function packPickOf(iso){ return (state.packPick || {})[iso] || null; }
+  function nextPackMealAuto(rice, chicken, alt, skip){
     if (skip === "all") return {type: "skipped", me: [], you: [], ids: [], r: 0, c: 0, skipWho: "all"};
     var a;
     if (rice.length && chicken.length) a = {type: "meal", me: [rice[0], chicken[0]], r: 1, c: 1};
@@ -2305,7 +2384,7 @@
         (skipped ? '🚫 안 먹음' : (done ? "✅ " : "") + esc(txt || "-") + (extra || "") + (nt ? '<small class="pk-nut">' + nt + '</small>' : '')) + '</span></span>';
     }
     return line(nm.me, me, a.skipWho === "me", a.type === "chicken2" ? ' <small>(밥 사야 해요)</small>' : a.type === "rice" ? ' <small>(닭 없음)</small>' : '', a.me) +
-      line(nm.you, you || "집밥", a.skipWho === "you", "", a.you);
+      line(nm.you, you || (a.type === "custom" ? "-" : "집밥"), a.skipWho === "you", "", a.you);
   }
   // date -> plan for the pack days in [from, to]: past/eaten days from the
   // log, upcoming ones simulated from the queues
@@ -2327,22 +2406,22 @@
       }
       if (e < currentToday) continue; // not eaten yet but past: autoPack handles it
       if (packEatenOut(e)) continue;   // 외식/배달 locked that evening
-      var a = nextPackMeal(rice, chicken, alt, packSkipOf(iso));
-      rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++;
+      var a = nextPackMeal(rice, chicken, alt, packSkipOf(iso), packPickOf(iso));
+      rice = a.restRice; chicken = a.restChicken; if (a.alt) alt++;
       map[iso] = a;
     }
     return map;
   }
   function eatPack(iso){
-    var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0, packSkipOf(iso));
+    var a = nextPackMeal(packSeq("rice"), packSeq("chicken"), state.packAlt || 0, packSkipOf(iso), packPickOf(iso));
     var items = a.ids.map(function(id, i){
       var it = itemById(id);
       return {id: id, name: it.name, line: it.line || "", pack: it.pack, who: i < a.me.length ? "me" : "you", kcal: it.kcal || 0, protein: it.protein || 0, est: !!it.est};
     });
     a.ids.forEach(function(id){ var it = itemById(id); it.qty = Math.round(it.qty) - 1; });
     state.inventory = inventory().filter(function(it){ return it.qty > 1e-9; });
-    state.packSeq.rice = (state.packSeq.rice || []).slice(a.r);
-    state.packSeq.chicken = (state.packSeq.chicken || []).slice(a.c);
+    state.packSeq.rice = a.restRice;
+    state.packSeq.chicken = a.restChicken;
     if (a.alt) state.packAlt = (state.packAlt || 0) + 1;
     state.consumed = state.consumed || {};
     state.consumed[iso + "|pack"] = {type: a.type, items: items, alt: !!a.alt, skipWho: a.skipWho || ""};
@@ -2399,7 +2478,7 @@
       var a = nextPackMeal(rice, chicken, alt);
       if (a.type === "none") break;
       if (a.type === "home" && !chicken.length) break;
-      rice = rice.slice(a.r); chicken = chicken.slice(a.c); if (a.alt) alt++; n++;
+      rice = a.restRice; chicken = a.restChicken; if (a.alt) alt++; n++;
     }
     return n;
   }
@@ -2466,12 +2545,14 @@
       '<div class="act-grid">' + opts.map(function(o){
         return '<button class="btn' + (o[0] === cur ? " primary" : "") + '" type="button" data-skipwho="' + o[0] + '">' + esc(o[1]) + '</button>';
       }).join("") + '</div>' +
-      '<p class="hint">안 먹은 사람만 체크하세요. 체크 안 하면 하루가 지나면 알아서 냉장고에서 빠져요. 안 먹은 몫은 냉장고에 남아서 다음 날로 넘어가요. 외식하는 날은 저녁에 외식을 고정해도 돼요.</p>' +
+      '<p class="hint">안 먹은 사람만 체크하세요. 체크 안 하면 하루가 지나면 알아서 냉장고에서 빠져요. 안 먹은 몫은 냉장고에 남아서 다음 날로 넘어가요.</p>' +
+      (!past && !a.done ? pickBoxHTML(iso, a) : '') +
       '<div class="actions"><button class="btn" type="button" id="pkClose">닫기</button></div></div>';
     host.innerHTML = ""; host.appendChild(overlay);
     function close(){ host.innerHTML = ""; }
     overlay.onclick = function(ev){ if (ev.target === overlay) close(); };
     overlay.querySelector("#pkClose").onclick = close;
+    wirePickBox(overlay, iso, close);
     Array.prototype.forEach.call(overlay.querySelectorAll("[data-skipwho]"), function(btn){
       btn.onclick = function(){
         var who = btn.getAttribute("data-skipwho");
@@ -2481,6 +2562,228 @@
         showToast(who === "all" ? dispDate(e) + " 둘 다 안 먹은 걸로 했어요" : who ? dispDate(e) + " " + (who === "me" ? nm.me : nm.you) + " 안 먹은 걸로 했어요" : dispDate(e) + " 둘 다 먹은 걸로 했어요");
       };
     });
+  }
+
+  // ---------- weight log ----------
+  // state.weights = {ISO: {me: {am, pm}, you: {am, pm}}} in kg
+  var wDay = null;
+  function weightOf(iso, who, when){
+    var d = (state.weights || {})[iso];
+    var v = d && d[who] && d[who][when];
+    return typeof v === "number" && v > 0 ? v : null;
+  }
+  function setWeight(iso, who, when, v){
+    state.weights = state.weights || {};
+    var d = state.weights[iso] = state.weights[iso] || {};
+    d[who] = d[who] || {};
+    if (v > 0) d[who][when] = Math.round(v * 10) / 10; else delete d[who][when];
+    if (!Object.keys(d[who]).length) delete d[who];
+    if (!Object.keys(d).length) delete state.weights[iso];
+  }
+  // one number per day for trends: morning if there is one, else evening
+  function dayWeight(iso, who){ return weightOf(iso, who, "am") || weightOf(iso, who, "pm"); }
+  function avgOver(who, fromE, toE){
+    var sum = 0, n = 0;
+    for (var e = fromE; e <= toE; e++){ var v = dayWeight(toISO(e), who); if (v){ sum += v; n++; } }
+    return n ? sum / n : null;
+  }
+  function firstWeight(who){
+    var ks = Object.keys(state.weights || {}).sort();
+    for (var i = 0; i < ks.length; i++){ var v = dayWeight(ks[i], who); if (v) return {iso: ks[i], v: v}; }
+    return null;
+  }
+  function fmtKg(v){ return v == null ? "-" : (Math.round(v * 10) / 10).toFixed(1); }
+  function fmtDiff(d){ if (d == null || isNaN(d)) return ""; var r = Math.round(d * 10) / 10; return (r > 0 ? "+" : r < 0 ? "−" : "±") + Math.abs(r).toFixed(1) + "kg"; }
+
+  function renderWeight(){
+    if (wDay === null) wDay = currentToday;
+    var iso = toISO(wDay), nm = packNames();
+    document.getElementById("wDate").textContent = dispDate(wDay) + (wDay === currentToday ? " 오늘" : "");
+    document.getElementById("wNext").disabled = wDay >= currentToday;
+    var people = [["me", nm.me], ["you", nm.you]];
+    document.getElementById("wGrid").innerHTML = '<span></span><span class="h">☀️ 아침</span><span class="h">🌙 저녁</span>' +
+      people.map(function(p){
+        return '<span class="who">' + esc(p[1]) + '</span>' + ["am","pm"].map(function(w){
+          var v = weightOf(iso, p[0], w);
+          return '<input type="number" inputmode="decimal" step="0.1" min="20" max="250" placeholder="kg" data-w="' + p[0] + '|' + w + '" value="' + (v ? fmtKg(v) : "") + '">';
+        }).join("");
+      }).join("");
+    Array.prototype.forEach.call(document.querySelectorAll("#wGrid input"), function(inp){
+      inp.onchange = function(){
+        var k = inp.getAttribute("data-w").split("|"), v = parseFloat(inp.value);
+        if (inp.value && !(v >= 20 && v <= 250)){ showToast("kg 숫자로 적어주세요 (예: 86.8)"); return; }
+        setWeight(iso, k[0], k[1], inp.value ? v : 0);
+        scheduleSave(); renderAll();
+        showToast(inp.value ? (k[0] === "me" ? nm.me : nm.you) + " " + (k[1] === "am" ? "아침" : "저녁") + " " + fmtKg(v) + "kg 저장" : "지웠어요");
+      };
+    });
+
+    // summary tiles: latest, change vs last week's average, change since the first record
+    var thisWeek = function(who){ return avgOver(who, currentToday - 6, currentToday); };
+    var lastWeek = function(who){ return avgOver(who, currentToday - 13, currentToday - 7); };
+    document.getElementById("wSummary").innerHTML = '<div class="w-sum">' + people.map(function(p){
+      var latest = null, latestIso = "";
+      for (var e = currentToday; e >= currentToday - 60; e--){ var v = dayWeight(toISO(e), p[0]); if (v){ latest = v; latestIso = toISO(e); break; } }
+      var f = firstWeight(p[0]), tw = thisWeek(p[0]), lw = lastWeek(p[0]);
+      return '<div class="w-tile"><div class="nm">' + esc(p[1]) + '</div>' +
+        '<div class="big">' + (latest ? fmtKg(latest) + '<small style="font-size:14px;">kg</small>' : '-') + '</div>' +
+        '<div class="d">' + (latest ? dispDate(parseISO(latestIso)) + ' 기준' : '아직 기록이 없어요') +
+          (tw && lw ? '<br>지난주 평균보다 ' + fmtDiff(tw - lw) : '') +
+          (f && latest && f.iso !== latestIso ? '<br>처음(' + dispDate(parseISO(f.iso)) + ')보다 ' + fmtDiff(latest - f.v) : '') +
+        '</div></div>';
+    }).join("") + '</div>';
+
+    document.getElementById("wCharts").innerHTML = people.map(function(p){ return weightChartHTML(p[0], p[1]); }).join("");
+    wireWeightCharts();
+
+    // table view (last 14 days with any record)
+    var rows = [];
+    for (var e2 = currentToday; e2 >= currentToday - 30 && rows.length < 14; e2--){
+      var i2 = toISO(e2);
+      if (dayWeight(i2, "me") || dayWeight(i2, "you")) rows.push(i2);
+    }
+    document.getElementById("wHistory").innerHTML = rows.length ? '<div class="inv-group"><h2>📋 최근 기록</h2>' +
+      '<table class="w-table"><tr><th>날짜</th><th>' + esc(nm.me) + ' 아침</th><th>저녁</th><th>' + esc(nm.you) + ' 아침</th><th>저녁</th></tr>' +
+      rows.map(function(r){
+        return '<tr data-wday="' + r + '"><td>' + dispDate(parseISO(r)) + '</td>' +
+          [["me","am"],["me","pm"],["you","am"],["you","pm"]].map(function(k){ return '<td>' + fmtKg(weightOf(r, k[0], k[1])) + '</td>'; }).join("") + '</tr>';
+      }).join("") + '</table></div>' : '';
+    Array.prototype.forEach.call(document.querySelectorAll("[data-wday]"), function(tr){
+      tr.style.cursor = "pointer";
+      tr.onclick = function(){ wDay = parseISO(tr.getAttribute("data-wday")); renderWeight(); window.scrollTo(0, 0); };
+    });
+  }
+  document.getElementById("wPrev").onclick = function(){ wDay = (wDay === null ? currentToday : wDay) - 1; renderWeight(); };
+  document.getElementById("wNext").onclick = function(){ if (wDay < currentToday){ wDay++; renderWeight(); } };
+
+  // last 30 days, one small chart per person: morning solid, evening dashed
+  function weightChartHTML(who, name){
+    var from = currentToday - 29, pts = {am: [], pm: []}, vals = [];
+    for (var e = from; e <= currentToday; e++){
+      ["am","pm"].forEach(function(w){ var v = weightOf(toISO(e), who, w); if (v){ pts[w].push({e: e, v: v}); vals.push(v); } });
+    }
+    if (vals.length < 2) return '<div class="inv-group"><h2>📈 ' + esc(name) + ' 최근 30일</h2><div class="inv-log"><span>기록이 2번 이상 쌓이면 그래프가 나와요.</span></div></div>';
+    var lo = Math.floor(Math.min.apply(null, vals) - 0.5), hi = Math.ceil(Math.max.apply(null, vals) + 0.5);
+    var W = 340, H = 150, L = 34, R = 8, T = 10, B = 22;
+    function x(e){ return L + (e - from) / 29 * (W - L - R); }
+    function y(v){ return T + (hi - v) / (hi - lo) * (H - T - B); }
+    var grid = "", step = (hi - lo) > 6 ? 2 : 1;
+    for (var g = lo; g <= hi; g += step){
+      grid += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(g) + '" y2="' + y(g) + '" stroke="var(--surface-border)" stroke-width="1"/>' +
+        '<text x="' + (L - 6) + '" y="' + (y(g) + 4) + '" text-anchor="end" font-size="10" fill="var(--ink-faint)">' + g + '</text>';
+    }
+    var xl = [from, from + 14, currentToday].map(function(e){
+      return '<text x="' + x(e) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="var(--ink-faint)">' + fromEpochDay(e).m + '/' + fromEpochDay(e).d + '</text>';
+    }).join("");
+    function path(arr){ return arr.map(function(p, i){ return (i ? "L" : "M") + x(p.e).toFixed(1) + " " + y(p.v).toFixed(1); }).join(" "); }
+    function dots(arr, color){
+      return arr.map(function(p){ return '<circle cx="' + x(p.e) + '" cy="' + y(p.v) + '" r="4" fill="' + color + '" stroke="var(--bg)" stroke-width="2"/>'; }).join("");
+    }
+    var data = [];
+    for (var e2 = from; e2 <= currentToday; e2++){
+      var am = weightOf(toISO(e2), who, "am"), pm = weightOf(toISO(e2), who, "pm");
+      if (am || pm) data.push({e: e2, am: am, pm: pm});
+    }
+    return '<div class="inv-group" style="padding:0 12px 10px;"><h2 style="margin:0 -12px 8px;">📈 ' + esc(name) + ' 최근 30일</h2>' +
+      '<div class="w-legend"><span><i style="border-color:var(--w-am)"></i>아침</span><span><i style="border-color:var(--w-pm);border-top-style:dashed"></i>저녁</span></div>' +
+      '<div class="w-chart" data-wchart="' + who + '" data-from="' + from + '" data-l="' + L + '" data-r="' + R + '" data-w="' + W + '" data-pts=\'' + JSON.stringify(data) + '\'>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(name) + ' 최근 30일 체중">' + grid + xl +
+        (pts.pm.length > 1 ? '<path d="' + path(pts.pm) + '" fill="none" stroke="var(--w-pm)" stroke-width="2" stroke-dasharray="5 4"/>' : '') +
+        (pts.am.length > 1 ? '<path d="' + path(pts.am) + '" fill="none" stroke="var(--w-am)" stroke-width="2"/>' : '') +
+        dots(pts.pm, "var(--w-pm)") + dots(pts.am, "var(--w-am)") +
+        '<line class="w-cross" x1="0" x2="0" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--ink-faint)" stroke-width="1" style="display:none"/>' +
+      '</svg><div class="w-tip"></div></div></div>';
+  }
+  // hover / tap: nearest day with a record
+  function wireWeightCharts(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-wchart]"), function(box){
+      var data = JSON.parse(box.getAttribute("data-pts") || "[]");
+      var from = +box.getAttribute("data-from"), L = +box.getAttribute("data-l"), R = +box.getAttribute("data-r"), W = +box.getAttribute("data-w");
+      var svg = box.querySelector("svg"), tip = box.querySelector(".w-tip"), cross = box.querySelector(".w-cross");
+      function show(clientX){
+        var rect = svg.getBoundingClientRect(), sx = (clientX - rect.left) / rect.width * W;
+        var e = from + Math.round((sx - L) / (W - L - R) * 29), best = null;
+        data.forEach(function(d){ if (!best || Math.abs(d.e - e) < Math.abs(best.e - e)) best = d; });
+        if (!best) return;
+        var px = L + (best.e - from) / 29 * (W - L - R);
+        cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.style.display = "";
+        tip.innerHTML = '<b>' + dispDate(best.e) + '</b><br>아침 ' + fmtKg(best.am) + ' · 저녁 ' + fmtKg(best.pm);
+        tip.style.left = (px / W * rect.width) + "px"; tip.style.top = "6px"; tip.style.display = "block";
+      }
+      function hide(){ tip.style.display = "none"; cross.style.display = "none"; }
+      svg.addEventListener("pointermove", function(ev){ show(ev.clientX); });
+      svg.addEventListener("pointerdown", function(ev){ show(ev.clientX); });
+      svg.addEventListener("pointerleave", hide);
+    });
+  }
+
+  // "🔄 메뉴 바꾸기": pick from what's in the fridge, or make it a normal dinner
+  function packOptions(kinds, selected, allowNone){
+    var items = inventory().filter(function(it){ return kinds.indexOf(it.pack) !== -1 && it.qty > 0; });
+    return (allowNone ? '<option value="">' + allowNone + '</option>' : '') + items.map(function(it){
+      var n = nutriTxt({kcal: +it.kcal || 0, protein: +it.protein || 0, est: !!it.est});
+      return '<option value="' + esc(it.id) + '"' + (it.id === selected ? " selected" : "") + '>' + esc(it.name) + (n ? " (" + n.replace(" · 단백질 ", "/") + ")" : "") + '</option>';
+    }).join("");
+  }
+  function pickBoxHTML(iso, a){
+    var nm = packNames();
+    var me = a.me || [], you = a.you || [];
+    var meRice = me.filter(function(id){ var it = itemById(id); return it && it.pack === "rice"; })[0] || "";
+    var meCh = me.filter(function(id){ var it = itemById(id); return it && it.pack === "chicken"; });
+    var sel = 'style="width:100%;' + PACK_INPUT + 'margin-bottom:6px;"';
+    return '<div class="cand-box" style="margin-top:6px;"><b>🔄 메뉴 바꾸기</b>' +
+      '<div class="hint" style="margin:4px 0 8px;">냉장고에 있는 것 중에서 골라요. 고른 건 이 날로 당겨지고, 원래 메뉴는 다음 날들로 넘어가요.</div>' +
+      '<label class="lb" style="font-size:12.5px;font-weight:700;">' + esc(nm.me) + '</label>' +
+      '<select id="pkMeRice" ' + sel + '>' + packOptions(["rice"], meRice, "밥 없이") + '</select>' +
+      '<select id="pkMeCh" ' + sel + '>' + packOptions(["chicken"], meCh[0] || "", "닭 없이") + '</select>' +
+      '<select id="pkMeCh2" ' + sel + '>' + packOptions(["chicken"], meCh[1] || "", "하나 더 안 먹음") + '</select>' +
+      '<label class="lb" style="font-size:12.5px;font-weight:700;">' + esc(nm.you) + '</label>' +
+      '<select id="pkYouCh" ' + sel + '>' + packOptions(["chicken","rice"], you[0] || "", "안 먹음") + '</select>' +
+      '<select id="pkYouCh2" ' + sel + '>' + packOptions(["chicken","rice"], you[1] || "", "하나 더 안 먹음") + '</select>' +
+      '<div class="act-grid" style="margin:4px 0 0;">' +
+        '<button class="btn primary" type="button" id="pkPickSave">이 메뉴로 바꾸기</button>' +
+        (packPickOf(iso) ? '<button class="btn" type="button" id="pkPickReset">원래대로</button>' : '<span></span>') +
+      '</div>' +
+      '<div class="hint" style="margin:10px 0 6px;">오늘은 다이어트 쉬고 싶다면 😮‍💨</div>' +
+      '<div class="act-grid" style="margin:0;">' +
+        '<button class="btn" type="button" data-pk-out="외식">🍽 외식</button>' +
+        '<button class="btn" type="button" data-pk-out="배달">🛵 배달</button>' +
+        '<button class="btn wide" type="button" id="pkOutType">✏️ 다른 메뉴 직접 입력</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:6px;">이렇게 바꾼 날은 팩이 냉장고에서 안 빠져요. 저녁을 다시 눌러 고정을 풀면 팩으로 돌아와요.</div>' +
+      '</div>';
+  }
+  function wirePickBox(overlay, iso, close){
+    var save = overlay.querySelector("#pkPickSave");
+    if (!save) return;
+    function val(id){ var el = overlay.querySelector("#" + id); return el ? el.value : ""; }
+    save.onclick = function(){
+      var me = [val("pkMeRice"), val("pkMeCh"), val("pkMeCh2")].filter(Boolean);
+      var you = [val("pkYouCh"), val("pkYouCh2")].filter(Boolean);
+      var all = me.concat(you), seen = {}, dup = false;
+      all.forEach(function(id){ seen[id] = (seen[id] || 0) + 1; var it = itemById(id); if (it && seen[id] > Math.round(it.qty)) dup = true; });
+      if (dup){ showToast("냉장고에 있는 개수보다 많이 골랐어요"); return; }
+      state.packPick = state.packPick || {};
+      state.packPick[iso] = {me: me, you: you};
+      var cut = toISO(currentToday - 30);
+      Object.keys(state.packPick).forEach(function(k){ if (k < cut) delete state.packPick[k]; });
+      close(); scheduleSave(); renderAll();
+      showToast(dispDate(parseISO(iso)) + " 메뉴를 바꿨어요 🔄");
+    };
+    var reset = overlay.querySelector("#pkPickReset");
+    if (reset) reset.onclick = function(){
+      delete state.packPick[iso];
+      close(); scheduleSave(); renderAll();
+      showToast("원래 메뉴로 돌렸어요");
+    };
+    Array.prototype.forEach.call(overlay.querySelectorAll("[data-pk-out]"), function(b){
+      b.onclick = function(){
+        setLock(iso, "dinner", b.getAttribute("data-pk-out"));
+        close(); scheduleSave(); renderAll();
+        showToast("오늘은 " + b.getAttribute("data-pk-out") + "! 팩은 다음 날로 넘어가요");
+      };
+    });
+    overlay.querySelector("#pkOutType").onclick = function(){ openLockSheet(iso, "dinner"); };
   }
 
   function expiringSoon(){
@@ -3086,7 +3389,7 @@
     btn.onclick = function(){
       activeTab = btn.getAttribute("data-tab");
       document.querySelectorAll("nav.tabs button").forEach(function(b){b.classList.toggle("active", b===btn);});
-      ["plan","shop","fridge","settings"].forEach(function(t){
+      ["plan","shop","fridge","weight","settings"].forEach(function(t){
         document.getElementById("tab-"+t).hidden = (t!==activeTab);
       });
       document.getElementById("fabLock").hidden = (activeTab!=="plan");
