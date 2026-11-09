@@ -1081,7 +1081,9 @@
   function eatoutGapOf(st){ return st.eatoutGap == null ? 3 : (parseInt(st.eatoutGap,10) || 0); }
   // weekday (non-holiday) dinners from packStart are the diet pack
   function packDayFor(st, e){
-    return st.dietMode === "pack" && !!st.packStart && toISO(e) >= st.packStart && !isOffDay(st, e);
+    var iso = toISO(e);
+    return st.dietMode === "pack" && !!st.packStart && iso >= st.packStart &&
+      (!isOffDay(st, e) || (st.packExtra || []).indexOf(iso) !== -1);
   }
   function chickenGapOf(st){ return st.chickenGap == null ? 3 : (parseInt(st.chickenGap,10) || 0); }
   function generatePlan(st, today, opts){
@@ -1953,7 +1955,7 @@
     var nDiet = (state.dishes || []).filter(function(n){ return isDietDish(state, n); }).length;
     document.getElementById("dietHint").textContent =
       dm === "both" ? "평일 저녁은 다이어트 메뉴(💪, 지금 " + nDiet + "개)로, 주말·휴일은 평소 메뉴로 짜요." :
-      dm === "pack" ? "평일 저녁(휴일 제외)은 냉장고의 다이어트 팩으로: " + packNames().me + " 2개(밥 1 + 닭 1), " + packNames().you + " 1개(닭). 식단표 메뉴는 주말·휴일에만 짜요. 평일 저녁에 외식·배달을 고정하면 그날 팩은 건너뛰어요." :
+      dm === "pack" ? "평일 저녁(휴일 제외)은 냉장고의 다이어트 팩으로: " + packNames().me + " 2개(밥 1 + 닭 1), " + packNames().you + " 1개(닭). 식단표 메뉴는 주말·휴일에만 짜요. 평일 저녁에 외식·배달을 고정하면 그날 팩은 건너뛰어요. 주말·휴일 저녁도 눌러서 ‘다이어트 팩으로’를 고르면 팩을 먹어요." :
       dm === "one" ? "메뉴는 평소대로 두고, 평일 저녁마다 " + (state.dietName || "다이어트하는 사람") + "용으로 덜 먹는 방법과 대략적인 칼로리를 보여줘요." :
       "다이어트 메뉴(💪)는 식단에 안 나와요. 칼로리는 메뉴마다 대략 표시돼요.";
     document.getElementById("chickenHint").textContent = "닭 요리로 인식된 메뉴: " + (chickens.length ? chickens.join(", ") : "없음") +
@@ -2769,6 +2771,7 @@
         '<button class="btn" type="button" data-pk-out="외식">🍽 외식</button>' +
         '<button class="btn" type="button" data-pk-out="배달">🛵 배달</button>' +
         '<button class="btn wide" type="button" id="pkOutType">✏️ 다른 메뉴 직접 입력</button>' +
+        ((state.packExtra || []).indexOf(iso) !== -1 ? '<button class="btn wide" type="button" id="pkUnExtra">↩ 팩 빼고 원래 주말·휴일 메뉴로</button>' : '') +
       '</div>' +
       '<div class="hint" style="margin-top:6px;">이렇게 바꾼 날은 팩이 냉장고에서 안 빠져요. 저녁을 다시 눌러 고정을 풀면 팩으로 돌아와요.</div>' +
       '</div>';
@@ -2804,6 +2807,13 @@
       };
     });
     overlay.querySelector("#pkOutType").onclick = function(){ openLockSheet(iso, "dinner"); };
+    var un = overlay.querySelector("#pkUnExtra");
+    if (un) un.onclick = function(){
+      state.packExtra = (state.packExtra || []).filter(function(d){ return d !== iso; });
+      if (state.packPick) delete state.packPick[iso];
+      close(); scheduleSave(); renderAll();
+      showToast("원래 메뉴로 돌렸어요");
+    };
   }
 
   function expiringSoon(){
@@ -3373,6 +3383,8 @@
           (locked ? '<button class="btn danger wide" type="button" id="msUnlock">🔓 고정 해제 (자동 메뉴로)</button>' : '') +
           (cookKey ? '<button class="btn wide" type="button" id="msCook">' +
             (Array.isArray(cooked) ? '↩ 냉장고에서 뺀 재료 되돌리기' : '🍳 해먹었어요 (냉장고에서 재료 빼기)') + '</button>' : '') +
+          (meal === "dinner" && !past && state.dietMode === "pack" && state.packStart && dateISO >= state.packStart && isOffDay(state, e) ?
+            '<button class="btn wide" type="button" id="msPackOn">💪 이날 저녁도 다이어트 팩으로</button>' : '') +
           (weekday && !past ? '<button class="btn wide" type="button" id="msHoliday">' +
             (holiday ? '🎌 휴일 해제 (저녁만)' : '🎌 이 날 휴일로 (점심·저녁 둘 다)') + '</button>' : '') +
         '</div>' +
@@ -3417,6 +3429,14 @@
         close(); scheduleSave(); renderAll();
         showToast(log.length ? "냉장고에서 " + log.length + "가지 뺐어요 🍳" : "냉장고에 맞는 재료가 없었어요");
       }
+    };
+    var pOn = overlay.querySelector("#msPackOn");
+    if (pOn) pOn.onclick = function(){
+      state.packExtra = (state.packExtra || []).filter(function(d){ return d !== dateISO && d >= toISO(currentToday - 60); });
+      state.packExtra.push(dateISO); state.packExtra.sort();
+      removeLock(dateISO, "dinner");
+      close(); scheduleSave(); renderAll();
+      showToast(dispDate(e) + " 저녁은 다이어트 팩! 💪 원래 메뉴는 다음 끼니로 밀려요");
     };
     var hBtn = overlay.querySelector("#msHoliday");
     if (hBtn) hBtn.onclick = function(){
